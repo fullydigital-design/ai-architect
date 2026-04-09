@@ -1,0 +1,57 @@
+/* ReactFlow styles */
+
+/* Edges */
+.react-flow__edge-path {
+  stroke-width: 1.5px;
+}
+
+.react-flow__edge.animated path {
+  stroke-dasharray: 5;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 2px;
+  filter: brightness(1.2);
+}
+
+/* Handles */
+.react-flow__handle {
+  transition: all 0.15s ease;
+}
+
+.react-flow__handle:hover {
+  width: 12px !important;
+  height: 12px !important;
+  transform: scale(1.15);
+  filter: brightness(1.2);
+}
+
+/* Connection line preview */
+.react-flow__connectionline {
+  stroke: var(--accent) !important;
+  stroke-width: 1.5px;
+}
+
+/* Selected node */
+.react-flow__node.selected {
+  box-shadow: 0 0 0 1px rgba(124, 106, 239, 0.5), 0 0 12px rgba(124, 106, 239, 0.15);
+  border-radius: 0px;
+}
+
+/* Panels */
+.react-flow__panel {
+  margin: 8px;
+}
+
+/* Dash animation */
+@keyframes dashdraw {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* Hide attribution */
+.react-flow__attribution {
+  display: none !important;
+}

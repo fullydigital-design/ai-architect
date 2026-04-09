@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "comfyui-architect": {
+      "command": "npx",
+      "args": ["tsx", "mcp-server/index.ts"],
+      "env": {
+        "COMFY_BASE_URL": "http://127.0.0.1:8188",
+        "ARCHITECT_URL": "http://127.0.0.1:5173"
+      }
+    }
+  }
+}

@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+webapp/.vite/
+
+# Logs and temp files
+*.log
+*.err.log
+webapp/_tmp_*
+webapp/dev_*.txt
+
+# Python cache/venv
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor/OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local env files
+.env
+.env.local
+.env.*.local
+.env.secret
+.env.secret.*
+
+# Cursor IDE
+.cursor/
+.cursorrules
+cursor-instructions
+**/cursor-instructions
+
+# Root-level temp files
+_tmp_*
+
+# Internal planning docs
+docs/DELIVERY_CLEANUP_PLAN.md

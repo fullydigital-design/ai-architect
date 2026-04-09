@@ -1,0 +1,11 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+@import './scrollbar.css';
+@import './animations.css';
+@import './reactflow.css';
+
+/* Scope Sonner toaster inside the canvas panel (absolute, not viewport-fixed) */
+[data-sonner-toaster] {
+  position: absolute !important;
+}

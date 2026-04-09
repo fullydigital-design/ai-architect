@@ -1,0 +1,22 @@
+{
+  "name": "comfyui-architect-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server for ComfyUI Workflow Architect; exposes ComfyUI operations as tools for Cursor/Codex",
+  "scripts": {
+    "build": "tsc",
+    "check": "npm run build",
+    "start": "node dist/index.js",
+    "dev": "tsx index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
