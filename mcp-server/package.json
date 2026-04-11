@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "MCP server for ComfyUI Workflow Architect; exposes ComfyUI operations as tools for Cursor/Codex",
+  "description": "MCP server for ComfyUI Workflow Architect; exposes ComfyUI operations as tools for any MCP-compatible AI client",
   "scripts": {
     "build": "tsc",
     "check": "npm run build",

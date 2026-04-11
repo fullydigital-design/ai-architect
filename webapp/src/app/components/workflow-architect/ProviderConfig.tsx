@@ -477,8 +477,9 @@ export function ProviderConfig({
 
   const selectedModelEntry = allModels.find(m => m.id === settings.selectedModel);
 
-  // Count keys set
-  const keysSet = PROVIDER_ORDER.filter(p => settings.keys[p].length > 0).length;
+  // Count API keys set (LM Studio uses a URL, not a key — exclude from count)
+  const apiKeyProviders = PROVIDER_ORDER.filter(p => p !== 'lmstudio');
+  const keysSet = apiKeyProviders.filter(p => settings.keys[p].length > 0).length;
   const customModelCount = settings.customModels.length;
 
   const toggleKeyVisibility = (provider: string) => {
@@ -550,7 +551,7 @@ export function ProviderConfig({
   // All default + custom for the grouped display in My Models
   const allByProvider = useMemo(() => {
     const result: Record<AIProvider, Array<{ id: string; name: string; isCustom: boolean; isActive: boolean }>> = {
-      openai: [], anthropic: [], google: [], openrouter: [],
+      openai: [], anthropic: [], google: [], openrouter: [], lmstudio: [],
     };
     for (const m of DEFAULT_MODELS) {
       result[m.provider].push({
@@ -619,7 +620,7 @@ export function ProviderConfig({
           <div className="flex items-center gap-0 border-b border-border-default mb-3">
             {([
               { id: 'model' as Tab, label: 'Model' },
-              { id: 'keys' as Tab, label: `Keys`, badge: `${keysSet}/${PROVIDER_ORDER.length}` },
+              { id: 'keys' as Tab, label: `Keys`, badge: `${keysSet}/${apiKeyProviders.length}` },
               { id: 'my-packs' as Tab, label: 'My Packs', badge: `${pinnedPacks.length}` },
               { id: 'my-models' as Tab, label: 'My Models', badge: `${DEFAULT_MODELS.length + customModelCount}` },
             ]).map(tab => (
@@ -721,35 +722,45 @@ export function ProviderConfig({
                 const key = settings.keys[provider];
                 const isVisible = showKeys[provider] || false;
                 const hasKey = key.length > 0;
+                const isLocal = provider === 'lmstudio';
 
                 return (
                   <div key={provider} className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] text-content-secondary uppercase tracking-wider">
+                      <label className="text-[10px] text-content-secondary uppercase tracking-wider flex items-center gap-1">
+                        {isLocal && <Cpu className="w-3 h-3" />}
                         {info.name}
                       </label>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded ${
-                        hasKey
-                          ? 'bg-state-success-muted text-state-success border border-state-success/20'
-                          : 'bg-surface-2 text-content-muted'
-                      }`}>
-                        {hasKey ? 'Set' : 'Not set'}
-                      </span>
+                      {isLocal ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-state-info-muted text-state-info border border-state-info/20">
+                          Local · No key needed
+                        </span>
+                      ) : (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                          hasKey
+                            ? 'bg-state-success-muted text-state-success border border-state-success/20'
+                            : 'bg-surface-2 text-content-muted'
+                        }`}>
+                          {hasKey ? 'Set' : 'Not set'}
+                        </span>
+                      )}
                     </div>
                     <div className="relative">
                       <input
-                        type={isVisible ? 'text' : 'password'}
+                        type={isLocal || isVisible ? 'text' : 'password'}
                         value={key}
                         onChange={(e) => handleKeyChange(provider, e.target.value)}
-                        placeholder={`Paste your ${info.name} API key`}
+                        placeholder={isLocal ? 'http://localhost:1234/v1' : `Paste your ${info.name} API key`}
                         className="w-full bg-surface-inset border border-border-default rounded-lg text-xs text-content-primary px-3 py-2 pr-8 focus:outline-none focus:border-accent/50 placeholder-text-tertiary font-mono"
                       />
-                      <button
-                        onClick={() => toggleKeyVisibility(provider)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary transition-colors"
-                      >
-                        {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
+                      {!isLocal && (
+                        <button
+                          onClick={() => toggleKeyVisibility(provider)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary transition-colors"
+                        >
+                          {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
                     </div>
                     <a
                       href={info.keyUrl}

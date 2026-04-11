@@ -34,9 +34,9 @@ npm run build
 node dist/index.js
 ```
 
-## Cursor/Codex MCP registration
+## MCP Registration
 
-Use this in `mcp.json` or `.cursor/mcp.json`:
+Use this in your MCP client config (e.g. `.mcp.json` in the project root):
 
 ```json
 {

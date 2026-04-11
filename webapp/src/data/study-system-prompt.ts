@@ -66,6 +66,14 @@ export function buildStudySystemPrompt(
 5. Be specific — quote actual widget values, connection types, and parameter choices from the workflow.
 6. If the user asks about a custom node you don't have full documentation for, say so honestly but explain what you can infer from its inputs/outputs and connections.
 
+## Response Discipline
+- **Lead with the direct answer.** If asked "what does node #5 do?" — answer that in the first sentence, then explain context.
+- **Structure over prose.** Use bullet points and tables. Avoid multi-paragraph blocks of plain text.
+- **No preamble.** Skip openers like "Great question!", "Let me walk you through..." — just explain.
+- **Assume expert ComfyUI user.** Don't define sampler, CFG, latent space, or other fundamentals unless asked.
+- **Quote the workflow.** Reference actual values: `steps: 20`, `cfg: 7.0`, `KSampler #5` — not vague descriptions.
+- **Depth over breadth.** If asked about one node, explain that node deeply. Don't survey the whole pipeline unless the user asks for an overview.
+
 ## Pack Recommendation Tags
 When mentioning custom node packs, use \`{{pack:slug}}\` syntax (e.g. {{pack:comfyui-impact-pack}}) so the UI renders them as interactive buttons.
 
@@ -78,5 +86,5 @@ ${workflowJson}
 \`\`\`
 
 ${packsSection ? `## Custom Node Pack Context\n${packsSection}` : ''}
-Answer the user's questions about this workflow. Be thorough, specific, and educational.`;
+Answer questions directly and specifically. Educational depth over broad overviews.`;
 }

@@ -204,7 +204,7 @@ let detectionPromise: Promise<boolean> | null = null;
 let detectionResult: boolean | null = null;
 let detectionTimestamp = 0;
 let detectionBase: string | null = null;
-const DETECTION_CACHE_TTL = 30_000;
+const DETECTION_CACHE_TTL = 300_000; // 5 minutes
 
 let managerModelRegistryCache: ManagerModelRegistryRow[] | null = null;
 let managerModelRegistryBase: string | null = null;
@@ -593,10 +593,12 @@ async function detectManager(comfyuiUrl: string): Promise<boolean> {
   const base = resolveBaseUrl(comfyuiUrl);
 
   const v2Endpoints = [
-    `${base}/customnode/getlist?mode=local`,
-    `${base}/customnode/getmappings?mode=local`,
+    // Probe lightweight endpoints first to avoid downloading large payloads just for detection.
+    // getlist (2.7 MB) is fetched separately by getManagerNodeList after detection confirms manager.
     `${base}/customnode/installed`,
     `${base}/customnode/fetch_updates?mode=local`,
+    `${base}/customnode/getmappings?mode=local`,
+    `${base}/customnode/getlist?mode=local`,
   ];
   const v3Endpoints = [
     `${base}/api/manager/node/list`,
@@ -607,14 +609,11 @@ async function detectManager(comfyuiUrl: string): Promise<boolean> {
 
   for (const url of [...v2Endpoints, ...v3Endpoints]) {
     try {
-      const { response } = await managerFetch(
+      // Use fetchWithTimeout directly to avoid verbose [Manager API] logging for probe requests.
+      const response = await fetchWithTimeout(
         url,
-        {
-          method: 'GET',
-          headers: { Accept: 'application/json, text/plain, */*' },
-        },
-        5000,
-        [404],
+        { method: 'GET', headers: { Accept: 'application/json, text/plain, */*' } },
+        10000,
       );
 
       // 200 = healthy Manager endpoint; 500 = endpoint exists but failed server-side.
@@ -623,8 +622,6 @@ async function detectManager(comfyuiUrl: string): Promise<boolean> {
         console.log(`[Manager Detection] FOUND via ${url} (status: ${response.status})`);
         return true;
       }
-
-      console.log(`[Manager Detection] ${url} -> 404`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.log(`[Manager Detection] ${url} -> network error (${message})`);
@@ -1233,6 +1230,10 @@ export async function installPack(
 ): Promise<InstallResult> {
   const result = await queueOperation('install', packData, comfyuiUrl, onStatus);
   if (result.success) {
+    // Poll until the Manager queue goes idle — the install actually runs server-side
+    // after queueOperation returns, so refreshing the node list immediately would
+    // return stale data (the pack still showing as not-installed).
+    await pollInstallCompletion(comfyuiUrl, 1, 120_000, undefined, onStatus);
     await refreshManagerNodeList(comfyuiUrl).catch(() => undefined);
     publishStatus(comfyuiUrl, 'manager-node-list-updated', 'Install completed, manager list refreshed', onStatus);
   }
@@ -1246,6 +1247,7 @@ export async function uninstallPack(
 ): Promise<InstallResult> {
   const result = await queueOperation('uninstall', packData, comfyuiUrl, onStatus);
   if (result.success) {
+    await pollInstallCompletion(comfyuiUrl, 1, 60_000, undefined, onStatus);
     await refreshManagerNodeList(comfyuiUrl).catch(() => undefined);
     publishStatus(comfyuiUrl, 'manager-node-list-updated', 'Uninstall completed, manager list refreshed', onStatus);
   }
@@ -1259,6 +1261,7 @@ export async function updatePack(
 ): Promise<InstallResult> {
   const result = await queueOperation('update', packData, comfyuiUrl, onStatus);
   if (result.success) {
+    await pollInstallCompletion(comfyuiUrl, 1, 120_000, undefined, onStatus);
     await refreshManagerNodeList(comfyuiUrl).catch(() => undefined);
     publishStatus(comfyuiUrl, 'manager-node-list-updated', 'Update completed, manager list refreshed', onStatus);
   }

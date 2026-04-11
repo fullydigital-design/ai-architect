@@ -34,9 +34,16 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gemini-2.0-flash': 1_000_000,
   'gemini-1.5-pro': 2_000_000,
   'gemini-1.5-flash': 1_000_000,
-  // === OpenRouter common ===
+  // === OpenRouter / LM Studio — Qwen3 ===
+  'qwen/qwen3-coder-480b': 262_144,
+  'qwen/qwen3-coder-30b':  32_768,
+  'qwen/qwen3-235b':       131_072,
+  'qwen/qwen3-32b':        32_768,
+  'qwen/qwen3-14b':        32_768,
+  'qwen/qwen3-8b':         32_768,
   'qwen/qwen3.5-plus': 128_000,
   'qwen/qwen3.5-397b': 128_000,
+  // === OpenRouter common ===
   'minimax/minimax-m2.5': 128_000,
   'deepseek/deepseek-chat': 128_000,
   'deepseek/deepseek-r1': 128_000,
@@ -82,9 +89,16 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'gemini-2.0-flash': 8_192,
   'gemini-1.5-pro': 8_192,
   'gemini-1.5-flash': 8_192,
-  // === OpenRouter common ===
+  // === OpenRouter / LM Studio — Qwen3 ===
+  'qwen/qwen3-coder-480b': 32_768,
+  'qwen/qwen3-coder-30b':  32_768,
+  'qwen/qwen3-235b':       32_768,
+  'qwen/qwen3-32b':        32_768,
+  'qwen/qwen3-14b':        32_768,
+  'qwen/qwen3-8b':         32_768,
   'qwen/qwen3.5-plus': 32_768,
   'qwen/qwen3.5-397b': 32_768,
+  // === OpenRouter common ===
   'minimax/minimax-m2.5': 16_384,
   'deepseek/deepseek-r1': 65_536,
   'deepseek/deepseek-v3': 65_536,
@@ -266,6 +280,7 @@ export function getModelsByProvider(customModels: CustomModel[]): Record<AIProvi
     anthropic: [],
     google: [],
     openrouter: [],
+    lmstudio: [],
   };
   for (const m of all) {
     result[m.provider].push(m);
@@ -319,9 +334,15 @@ export const PROVIDER_INFO: Record<AIProvider, { name: string; keyPrefix: string
     keyUrl: 'https://openrouter.ai/keys',
     keyUrlLabel: 'Get OpenRouter API key',
   },
+  lmstudio: {
+    name: 'LM Studio',
+    keyPrefix: 'http',
+    keyUrl: 'https://lmstudio.ai',
+    keyUrlLabel: 'LM Studio — local OpenAI-compatible server',
+  },
 };
 
-export const PROVIDER_ORDER: AIProvider[] = ['openai', 'anthropic', 'google', 'openrouter'];
+export const PROVIDER_ORDER: AIProvider[] = ['openai', 'anthropic', 'google', 'openrouter', 'lmstudio'];
 
 // ===== Model discovery links =====
 
@@ -330,6 +351,7 @@ export const MODEL_DISCOVERY_URLS: Record<AIProvider, { url: string; label: stri
   anthropic: { url: 'https://docs.anthropic.com/en/docs/about-claude/models', label: 'Anthropic Models' },
   google: { url: 'https://ai.google.dev/gemini-api/docs/models', label: 'Google Models' },
   openrouter: { url: 'https://openrouter.ai/models', label: 'OpenRouter Models' },
+  lmstudio: { url: 'https://lmstudio.ai/models', label: 'LM Studio Model Catalog' },
 };
 
 // ===== AI Call Logic =====
@@ -340,6 +362,8 @@ interface AICallOptions {
   onChunk?: (chunk: string) => void;
   /** Optional override for the system prompt (e.g. with dynamic pack context) */
   systemPromptOverride?: string;
+  /** AbortSignal for cancelling the in-flight request */
+  signal?: AbortSignal;
 }
 
 export interface AITokenUsage {
@@ -354,8 +378,84 @@ export interface AICallResult {
   usage: AITokenUsage | null;
 }
 
+// ===== Think-block filtering (Qwen3 / reasoning models) =====
+// Some models (Qwen3, DeepSeek-R1, etc.) output <think>...</think> blocks before
+// their actual response. The markdown renderer silently drops unknown HTML tags,
+// making the response appear blank. We strip these blocks both in the streaming
+// path (so users don't see raw think content) and in the final text.
+
+/** Strip all <think>...</think> blocks from a completed response. */
+function stripThinkBlocks(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>\n?/gi, '').trimStart();
+}
+
+/**
+ * Returns the length of the longest suffix of `str` that is a prefix of `tag`.
+ * Used to detect partial tag matches at chunk boundaries.
+ */
+function longestTagSuffixLen(str: string, tag: string): number {
+  const max = Math.min(tag.length - 1, str.length);
+  for (let len = max; len > 0; len--) {
+    if (str.endsWith(tag.slice(0, len))) return len;
+  }
+  return 0;
+}
+
+/**
+ * Wraps an onChunk callback with a stateful filter that suppresses
+ * <think>...</think> content during streaming.
+ */
+function makeThinkStreamFilter(onChunk: (chunk: string) => void): (chunk: string) => void {
+  let inThink = false;
+  let tail = ''; // partial tag buffered across chunk boundaries
+
+  return (rawChunk: string) => {
+    let text = tail + rawChunk;
+    tail = '';
+    let out = '';
+
+    while (text.length > 0) {
+      if (inThink) {
+        const endTag = '</think>';
+        const idx = text.indexOf(endTag);
+        if (idx !== -1) {
+          // Found the closing tag — resume normal output after it
+          text = text.slice(idx + endTag.length);
+          if (text.startsWith('\n')) text = text.slice(1); // strip trailing newline
+          inThink = false;
+        } else {
+          // Might have a partial </think> split across the chunk boundary
+          const partialLen = longestTagSuffixLen(text, endTag);
+          if (partialLen > 0) tail = text.slice(text.length - partialLen);
+          text = '';
+        }
+      } else {
+        const startTag = '<think>';
+        const idx = text.indexOf(startTag);
+        if (idx !== -1) {
+          out += text.slice(0, idx);
+          text = text.slice(idx + startTag.length);
+          inThink = true;
+        } else {
+          // Check for partial <think> split at the end
+          const partialLen = longestTagSuffixLen(text, startTag);
+          if (partialLen > 0) {
+            out += text.slice(0, text.length - partialLen);
+            tail = text.slice(text.length - partialLen);
+          } else {
+            out += text;
+          }
+          text = '';
+        }
+      }
+    }
+
+    if (out.length > 0) onChunk(out);
+  };
+}
+
 export async function callAI(options: AICallOptions): Promise<AICallResult> {
-  const { settings, messages, onChunk, systemPromptOverride } = options;
+  const { settings, messages, onChunk, systemPromptOverride, signal } = options;
   const provider = getProviderForModel(settings.selectedModel, settings.customModels);
   const apiKey = settings.keys[provider];
   const contextWindow = getModelContextWindow(settings.selectedModel);
@@ -365,7 +465,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
     `[AI] Model: ${settings.selectedModel} | Context: ${contextWindow.toLocaleString()} | Max output: ${maxOutput.toLocaleString()} | Provider: ${provider}`,
   );
 
-  if (!apiKey) {
+  if (!apiKey && provider !== 'lmstudio') {
     throw new Error(`No API key configured for ${PROVIDER_INFO[provider].name}. Please add your key in the Keys tab.`);
   }
 
@@ -392,30 +492,56 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
     maxOutputTokens: maxOutput,
   });
 
+  // Filter <think>...</think> blocks from streaming output (Qwen3, DeepSeek-R1, etc.)
+  const filteredOnChunk = onChunk ? makeThinkStreamFilter(onChunk) : undefined;
+
   let result: AICallResult;
   switch (provider) {
     case 'openai':
-      result = await callOpenAI(apiKey, settings.selectedModel, allMessages, onChunk);
+      result = await callOpenAI(apiKey, settings.selectedModel, allMessages, filteredOnChunk, undefined, signal);
       break;
     case 'anthropic':
-      result = await callAnthropic(apiKey, settings.selectedModel, allMessages, onChunk);
+      result = await callAnthropic(apiKey, settings.selectedModel, allMessages, filteredOnChunk, signal);
       break;
     case 'google':
-      result = await callGoogle(apiKey, settings.selectedModel, allMessages, onChunk);
+      result = await callGoogle(apiKey, settings.selectedModel, allMessages, filteredOnChunk, signal);
       break;
     case 'openrouter':
-      result = await callOpenRouter(apiKey, settings.selectedModel, allMessages, onChunk);
+      result = await callOpenRouter(apiKey, settings.selectedModel, allMessages, filteredOnChunk, signal);
       break;
+    case 'lmstudio': {
+      // LM Studio 0.3.x used /v1, version 0.4.x uses /api/v1 for its native API.
+      // Both versions expose OpenAI-compatible endpoints — we probe /v1/models first
+      // and fall back to /api/v1 if it fails.
+      const lmHost = (settings.keys.lmstudio || 'http://localhost:1234')
+        .trim()
+        .replace(/\/$/, '')
+        .replace(/\/(api\/)?v1$/, ''); // strip any existing path so we control it
+      let lmBase = `${lmHost}/v1`;
+      try {
+        const probe = await fetch(`${lmHost}/v1/models`, { signal: AbortSignal.timeout(2000) });
+        if (!probe.ok) lmBase = `${lmHost}/api/v1`;
+      } catch {
+        lmBase = `${lmHost}/api/v1`;
+      }
+      result = await callOpenAI('lm-studio', settings.selectedModel, allMessages, filteredOnChunk, lmBase, signal);
+      break;
+    }
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
 
+  // Strip any residual <think>...</think> blocks from the final text.
+  // This covers: non-streaming calls, and streaming calls where the streamer
+  // accumulates raw deltas independently of the filtered onChunk callback.
+  const cleanText = stripThinkBlocks(result.text);
+
   if (result.usage) {
-    return result;
+    return { ...result, text: cleanText };
   }
 
   const estimatedInput = Math.max(0, Math.round(joinedInput.length * 0.75));
-  const estimatedOutput = Math.max(0, Math.round(result.text.length * 0.75));
+  const estimatedOutput = Math.max(0, Math.round(cleanText.length * 0.75));
   const estimatedUsage: AITokenUsage = {
     inputTokens: estimatedInput,
     outputTokens: estimatedOutput,
@@ -424,7 +550,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   };
   console.log('[AI] Usage metadata missing; estimated token usage:', estimatedUsage);
   return {
-    text: result.text,
+    text: cleanText,
     usage: estimatedUsage,
   };
 }
@@ -438,10 +564,13 @@ async function callOpenAI(
   model: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  baseUrl = 'https://api.openai.com/v1',
+  signal?: AbortSignal,
 ): Promise<AICallResult> {
   const maxOutput = getMaxOutputTokens(model);
+  const isOfficialOpenAI = baseUrl.includes('api.openai.com');
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -451,10 +580,14 @@ async function callOpenAI(
       model,
       messages,
       stream: !!onChunk,
-      stream_options: onChunk ? { include_usage: true } : undefined,
-      max_completion_tokens: maxOutput,
+      // stream_options and max_completion_tokens are OpenAI-specific — local servers use max_tokens
+      ...(isOfficialOpenAI
+        ? { stream_options: onChunk ? { include_usage: true } : undefined, max_completion_tokens: maxOutput }
+        : { max_tokens: maxOutput }
+      ),
       temperature: 0.3,
     }),
+    signal,
   });
 
   if (!res.ok) {
@@ -481,6 +614,7 @@ async function callOpenRouter(
   model: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  signal?: AbortSignal,
 ): Promise<AICallResult> {
   const maxOutput = getMaxOutputTokens(model);
 
@@ -500,6 +634,7 @@ async function callOpenRouter(
       max_completion_tokens: maxOutput,
       temperature: 0.3,
     }),
+    signal,
   });
 
   if (!res.ok) {
@@ -526,6 +661,7 @@ async function callAnthropic(
   model: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  signal?: AbortSignal,
 ): Promise<AICallResult> {
   const maxOutput = getMaxOutputTokens(model);
 
@@ -556,6 +692,7 @@ async function callAnthropic(
       max_tokens: maxOutput,
       temperature: 0.3,
     }),
+    signal,
   });
 
   if (!res.ok) {
@@ -582,6 +719,7 @@ async function callGoogle(
   model: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  signal?: AbortSignal,
 ): Promise<AICallResult> {
   const maxOutput = getMaxOutputTokens(model);
 
@@ -614,6 +752,7 @@ async function callGoogle(
         temperature: 0.3,
       },
     }),
+    signal,
   });
 
   if (!res.ok) {

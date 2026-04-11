@@ -1,5 +1,5 @@
 import { memo, useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Send, Loader2, Trash2, FileText, Plus, Wand2, Upload, Lightbulb, Wrench, Zap, Library as LibraryIcon, Puzzle } from 'lucide-react';
+import { Send, Loader2, Square, Trash2, FileText, Plus, Wand2, Upload, Lightbulb, Wrench, Zap, Library as LibraryIcon, Puzzle } from 'lucide-react';
 import { defaultUrlTransform } from 'react-markdown';
 import type { Components } from 'react-markdown';
 import type { ComfyUIWorkflow, Message } from '../../../types/comfyui';
@@ -83,6 +83,7 @@ interface ChatPanelProps {
   chatMode: 'build' | 'brainstorm';
   onChatModeChange?: (mode: 'build' | 'brainstorm') => void;
   onSendMessage: (message: string) => void;
+  onStop?: () => void;
   onApplyBrainstormToBuild?: (brainstormContext: string) => void;
   onBrainstormBuild?: (selectedClassTypes: string[], workflowTitle: string, workflowSummary: string) => void;
   onExtractNodes?: () => void;
@@ -178,6 +179,7 @@ export function ChatPanel({
   chatMode,
   onChatModeChange,
   onSendMessage,
+  onStop,
   onApplyBrainstormToBuild,
   onBrainstormBuild,
   onExtractNodes,
@@ -255,6 +257,8 @@ export function ChatPanel({
   const [showTemplates, setShowTemplates] = useState(false);
   const [queuedBuildPrompt, setQueuedBuildPrompt] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load registry for pack slug resolution (cached — zero cost after first fetch)
@@ -278,7 +282,9 @@ export function ChatPanel({
   );
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!userScrolledUpRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, streamingContent]);
 
   useEffect(() => {
@@ -312,6 +318,7 @@ export function ChatPanel({
       setShowDocs(false);
     }
 
+    userScrolledUpRef.current = false;
     onSendMessage(finalMessage);
     setInput('');
     if (textareaRef.current) {
@@ -514,7 +521,16 @@ export function ChatPanel({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto scrollbar-thin"
+        onScroll={() => {
+          const el = scrollContainerRef.current;
+          if (!el) return;
+          const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          userScrolledUpRef.current = !isNearBottom;
+        }}
+      >
         {isEmpty ? (
           chatMode === 'brainstorm' ? (
             <div className="px-4 py-6 space-y-4">
@@ -791,12 +807,17 @@ export function ChatPanel({
             />
           </div>
           <button
-            onClick={handleSubmit}
-            disabled={isLoading || !input.trim()}
-            className="p-2.5 rounded-sm bg-primary hover:bg-primary/90 disabled:opacity-30 disabled:bg-surface-300 disabled:hover:bg-surface-300 text-primary-foreground transition-colors shrink-0"
+            onClick={isLoading ? onStop : handleSubmit}
+            disabled={isLoading ? !onStop : !input.trim()}
+            className={`p-2.5 rounded-sm transition-colors shrink-0 ${
+              isLoading
+                ? 'bg-red-600 hover:bg-red-500 text-white disabled:opacity-30'
+                : 'bg-primary hover:bg-primary/90 disabled:opacity-30 disabled:bg-surface-300 disabled:hover:bg-surface-300 text-primary-foreground'
+            }`}
+            title={isLoading ? 'Stop generation' : 'Send message'}
           >
             {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Square className="w-4 h-4" />
             ) : (
               <Send className="w-4 h-4" />
             )}

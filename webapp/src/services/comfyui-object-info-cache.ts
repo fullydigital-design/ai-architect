@@ -5,7 +5,7 @@ let cachedBaseUrl: string | null = null;
 let cacheTimestamp = 0;
 let pendingRequest: Promise<Record<string, any>> | null = null;
 let pendingBaseUrl: string | null = null;
-const CACHE_DURATION_MS = 60_000;
+const CACHE_DURATION_MS = 300_000; // 5 minutes
 
 function normalizeBaseUrl(url: string): string {
   return resolveComfyUIBaseUrl(url);
@@ -32,6 +32,7 @@ export async function getObjectInfo(
   }
 
   pendingBaseUrl = baseUrl;
+  console.log('[Scanner] Fetching /object_info...');
   pendingRequest = fetch(`${baseUrl}/object_info`, {
     signal: AbortSignal.timeout(30000),
   })

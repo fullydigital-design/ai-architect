@@ -328,11 +328,12 @@ export class ModelDownloadService {
       return a.type.localeCompare(b.type);
     });
 
-    console.log(
-      '[ModelDownload] Missing models detected:',
-      output.length,
-      output.map((model) => `${model.type}:${model.filename}`),
-    );
+    if (output.length > 0) {
+      console.debug(
+        '[ModelDownload] Missing models:',
+        output.map((model) => `${model.type}:${model.filename}`),
+      );
+    }
 
     return output;
   }

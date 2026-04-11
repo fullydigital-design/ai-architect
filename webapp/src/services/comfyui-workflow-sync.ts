@@ -85,6 +85,19 @@ export async function loadComfyUIWorkflow(
   );
 
   if (!response.ok) {
+    if (response.status === 404) {
+      // Electron fallback: read directly from filesystem via IPC
+      if (typeof window !== 'undefined' && window.electronAPI?.readWorkflowFile) {
+        const result = await window.electronAPI.readWorkflowFile(path.replace(/^\/+/, ''));
+        if (result.content) {
+          return JSON.parse(result.content) as Record<string, unknown>;
+        }
+        if (result.error) {
+          throw new Error(`Failed to load workflow: ${result.error}`);
+        }
+      }
+      throw new Error(`Workflow file not found. Your ComfyUI may not support reading files via API — try updating ComfyUI to the latest version.`);
+    }
     throw new Error(`Failed to load workflow "${path}": HTTP ${response.status}`);
   }
 

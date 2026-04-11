@@ -44,6 +44,7 @@ interface CommandCenterProps {
   onRedo?: () => void;
   sessionPromptIds?: Set<string>;
   onComfyUIWorkflowFoldersChange?: (folders: string[]) => void;
+  onWorkflowSendToChat?: (workflowName: string) => void;
 }
 
 type ActivePanel =
@@ -96,6 +97,7 @@ export default function CommandCenter({
   onRedo,
   sessionPromptIds,
   onComfyUIWorkflowFoldersChange,
+  onWorkflowSendToChat,
 }: CommandCenterProps) {
   const [activeTab, setActiveTab] = useState<ActivePanel>('chat');
   const [nodesSubTab, setNodesSubTab] = useState<NodesSubTab>('check');
@@ -290,6 +292,10 @@ export default function CommandCenter({
                   if (ok) openPanel('chat');
                   return ok;
                 }}
+                onSendToChat={onWorkflowSendToChat ? (name) => {
+                  openPanel('chat');
+                  onWorkflowSendToChat(name);
+                } : undefined}
               />
             </Suspense>
           </ErrorBoundary>

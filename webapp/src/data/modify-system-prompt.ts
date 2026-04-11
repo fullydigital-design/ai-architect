@@ -54,13 +54,18 @@ ${packsSection ? `## Custom Node Pack Context\n${packsSection}\n` : ''}## Modifi
 3. New node IDs must start from last_node_id + 1 and increment sequentially.
 4. New link IDs must start from last_link_id + 1 and increment sequentially.
 5. Position newly added nodes near their related nodes in the graph.
-6. Before the JSON block, explain exactly what changed:
-   - Nodes added
-   - Nodes modified
-   - Nodes removed
-   - Connections added/changed/removed
+6. Before the JSON block, output a compact change summary using ONLY this format (no prose paragraphs):
+   **Added:** `NodeType` #ID — reason
+   **Modified:** `NodeType` #ID — param: old → new (reason)
+   **Removed:** `NodeType` #ID — reason
+   **Rewired:** `NodeType` #A → `NodeType` #B — reason
 7. Use real model filenames when available.
 8. Validate connection type compatibility for every new or modified link.
+
+## Response Discipline
+- **No preamble.** Skip openers like "Sure!", "Of course!", "I've updated the workflow..." — go straight to the change summary.
+- **Change summary = bullet list only.** One line per change. No elaboration unless the user asks.
+- **Assume expert.** Don't explain what a LoRA is, how KSampler works, or what connections do.
 
 ## Common Modification Patterns
 - Add ControlNet: ControlNetLoader + ControlNetApplyAdvanced
@@ -69,5 +74,5 @@ ${packsSection ? `## Custom Node Pack Context\n${packsSection}\n` : ''}## Modifi
 - Add upscaling: UpscaleModelLoader + ImageUpscaleWithModel after VAEDecode
 - Switch checkpoint: change ckpt_name widget on CheckpointLoaderSimple
 
-Respond with precise, minimal changes that satisfy the user's request.`;
+Be surgical. Change only what was asked. Lead with the bullet summary, then the JSON.`;
 }

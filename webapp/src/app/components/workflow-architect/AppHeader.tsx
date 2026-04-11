@@ -1,4 +1,4 @@
-import { Github, GitMerge, LayoutGrid, Moon, Sun } from 'lucide-react';
+import { Github, GitMerge, Moon, Sun } from 'lucide-react';
 import { QueueMonitor } from './QueueMonitor';
 import type { Theme } from '../../../hooks/useTheme';
 
@@ -15,7 +15,6 @@ interface AppHeaderProps {
     currentNode: string | null;
     progress: { step: number; max: number } | null;
   };
-  onOpenTemplateManager?: () => void;
   onOpenWorkflowMerger?: () => void;
 }
 
@@ -28,7 +27,6 @@ export function AppHeader({
   wsQueueRunning,
   wsQueuePending,
   wsExecution,
-  onOpenTemplateManager,
   onOpenWorkflowMerger,
 }: AppHeaderProps) {
   const fallbackStatusText = comfyuiOnline ? 'ComfyUI Connected' : 'ComfyUI Offline';
@@ -46,14 +44,6 @@ export function AppHeader({
         <span className="text-[10px] text-text-muted hidden sm:block">
           Generate valid ComfyUI workflows from natural language
         </span>
-        <button
-          onClick={onOpenTemplateManager}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[11px] text-content-secondary border border-border-default hover:text-content-primary hover:border-border-strong hover:bg-surface-secondary transition-colors"
-          title="Open Template Manager (Ctrl+Shift+T)"
-        >
-          <LayoutGrid className="w-3.5 h-3.5" />
-          Templates
-        </button>
         <button
           onClick={onOpenWorkflowMerger}
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[11px] text-content-secondary border border-border-default hover:text-content-primary hover:border-border-strong hover:bg-surface-secondary transition-colors"

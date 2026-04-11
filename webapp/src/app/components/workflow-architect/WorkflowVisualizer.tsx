@@ -372,7 +372,7 @@ export function WorkflowVisualizer({
     return () => {
       cancelled = true;
     };
-  }, [comfyuiUrl, workflow?.nodes?.length]);
+  }, [comfyuiUrl]);
 
   useEffect(() => {
     if (!workflow || !objectInfo || !modelDownloadServiceRef.current) {

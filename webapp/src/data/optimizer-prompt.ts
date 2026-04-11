@@ -67,7 +67,7 @@ export const SMART_SUGGEST_SYSTEM_PROMPT = `You are a ComfyUI parameter tuning e
 - Focus on highest impact: CFG, sampler_name, scheduler, steps, denoise
 - Keep total variants < 30
 - Do NOT suggest sweeping seed or model/checkpoint
-- Include a short "reason" for each
+- Keep "reason" to 1 concise sentence (10–15 words max)
 `;
 
 export function buildOptimizerUserMessage(workflowJson: string): string {

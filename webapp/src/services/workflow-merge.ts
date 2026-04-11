@@ -160,10 +160,14 @@ export function mergeWorkflows(
     }
 
     if (originalNode.type !== modifiedNode.type) {
+      // Restore original node — same-ID type changes are not supported.
+      // The AI must use add_node + remove_node to swap a node type.
+      // Silently accepting a type change here causes broken workflows (e.g.
+      // Swarm nodes replaced with standard equivalents after fallback parsing).
       report.warnings.push(
-        `Node #${modifiedNode.id} type changed: ${originalNode.type} -> ${modifiedNode.type}`,
+        `Node #${modifiedNode.id} type reverted: ${modifiedNode.type} → ${originalNode.type} (use add+remove to change type)`,
       );
-      mergedNodes.push(modifiedNode);
+      mergedNodes.push(originalNode);
       continue;
     }
 

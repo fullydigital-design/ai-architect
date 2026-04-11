@@ -322,9 +322,10 @@ export function CustomNodesBrowser({
 
   const handleRestartComfy = useCallback(async () => {
     if (!comfyuiUrl) return;
+    toast.info('Restarting ComfyUI — waiting for it to come back online...');
     const ok = await manager.rebootComfyUI(comfyuiUrl);
     if (ok) {
-      toast.success('ComfyUI is restarting...');
+      toast.success('ComfyUI restarted successfully');
       setShowRestartPrompt(false);
     } else {
       toast.error(manager.error || 'Failed to restart ComfyUI');
@@ -509,15 +510,27 @@ export function CustomNodesBrowser({
 
             {showRestartPrompt && (
               <div className="shrink-0 px-5 py-2 border-b border-accent/20 bg-accent/5 flex items-center justify-between gap-3">
-                <span className="text-[11px] text-accent-text">
-                  Custom node installed! Restart ComfyUI to activate.
+                <span className="text-[11px] text-accent-text flex items-center gap-1.5">
+                  {manager.isRebooting && (
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                  )}
+                  {manager.isRebooting
+                    ? 'Restarting ComfyUI — waiting for it to come back online...'
+                    : 'Custom node installed! Restart ComfyUI to activate.'}
                 </span>
                 <button
                   onClick={handleRestartComfy}
-                  disabled={!comfyuiUrl || manager.loading}
-                  className="px-2.5 py-1 rounded-sm border border-accent/30 bg-accent/20 hover:bg-accent/30 disabled:opacity-40 text-[11px] text-accent-text transition-colors"
+                  disabled={!comfyuiUrl || manager.loading || manager.isRebooting}
+                  className="px-2.5 py-1 rounded-sm border border-accent/30 bg-accent/20 hover:bg-accent/30 disabled:opacity-40 text-[11px] text-accent-text transition-colors flex items-center gap-1"
                 >
-                  Restart Now
+                  {manager.isRebooting ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Restarting...
+                    </>
+                  ) : (
+                    'Restart Now'
+                  )}
                 </button>
               </div>
             )}

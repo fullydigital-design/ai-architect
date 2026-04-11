@@ -3,6 +3,7 @@ import {
   Copy,
   FolderOpen,
   Loader2,
+  MessageSquare,
   Play,
   RefreshCw,
   Search,
@@ -23,6 +24,7 @@ interface ComfyUIWorkflowFolderPanelProps {
   comfyuiUrl?: string;
   onLoadWorkflowPath?: (path: string) => Promise<boolean> | boolean;
   onFoldersDiscovered?: (folders: string[]) => void;
+  onSendToChat?: (name: string) => void;
 }
 
 interface GroupedFiles {
@@ -49,29 +51,17 @@ function groupBySubfolder(files: ComfyUIWorkflowFile[]): GroupedFiles[] {
     }));
 }
 
-function getNodeCount(workflow: Record<string, unknown>): number {
-  const format = detectWorkflowFormat(workflow);
-  if (format === 'graph') {
-    const graph = workflow as ComfyUIWorkflow;
-    return Array.isArray(graph.nodes) ? graph.nodes.length : 0;
-  }
-  if (format === 'api') {
-    return Object.keys(workflow).filter((key) => /^\d+$/.test(key)).length;
-  }
-  return 0;
-}
-
 export function ComfyUIWorkflowFolderPanel({
   comfyuiUrl,
   onLoadWorkflowPath,
   onFoldersDiscovered,
+  onSendToChat,
 }: ComfyUIWorkflowFolderPanelProps) {
   const [files, setFiles] = useState<ComfyUIWorkflowFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
-  const [nodeCounts, setNodeCounts] = useState<Record<string, number>>({});
 
   const loadFiles = useCallback(async () => {
     if (!comfyuiUrl) {
@@ -100,35 +90,6 @@ export function ComfyUIWorkflowFolderPanel({
   useEffect(() => {
     void loadFiles();
   }, [loadFiles]);
-
-  useEffect(() => {
-    if (!comfyuiUrl || files.length === 0) {
-      setNodeCounts({});
-      return;
-    }
-
-    let cancelled = false;
-    const sample = files.slice(0, 80);
-
-    void (async () => {
-      const nextCounts: Record<string, number> = {};
-      for (const file of sample) {
-        try {
-          const rawWorkflow = await loadComfyUIWorkflow(comfyuiUrl, file.path);
-          nextCounts[file.path] = getNodeCount(rawWorkflow);
-        } catch {
-          // Ignore metadata failures per file
-        }
-      }
-      if (!cancelled) {
-        setNodeCounts(nextCounts);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [comfyuiUrl, files]);
 
   const filteredFiles = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -203,11 +164,6 @@ export function ComfyUIWorkflowFolderPanel({
     try {
       await deleteComfyUIWorkflow(comfyuiUrl, file.path);
       setFiles((prev) => prev.filter((entry) => entry.path !== file.path));
-      setNodeCounts((prev) => {
-        const next = { ...prev };
-        delete next[file.path];
-        return next;
-      });
       toast.success(`Deleted: ${file.path}`);
       await loadFiles();
     } catch (err: any) {
@@ -288,11 +244,6 @@ export function ComfyUIWorkflowFolderPanel({
                         <p className="text-[10px] text-content-secondary mt-1">
                           {file.subfolder ? `Folder: ${file.subfolder}` : 'Folder: root'}
                         </p>
-                        <p className="text-[10px] text-content-faint">
-                          {typeof nodeCounts[file.path] === 'number'
-                            ? `${nodeCounts[file.path]} nodes`
-                            : 'Node count: pending...'}
-                        </p>
                       </div>
                       <button
                         type="button"
@@ -305,7 +256,7 @@ export function ComfyUIWorkflowFolderPanel({
                       </button>
                     </div>
 
-                    <div className="mt-2 flex items-center gap-1.5">
+                    <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                       <button
                         type="button"
                         onClick={() => void handleLoad(file.path)}
@@ -315,6 +266,21 @@ export function ComfyUIWorkflowFolderPanel({
                         {isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                         Load
                       </button>
+                      {onSendToChat && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleLoad(file.path);
+                            onSendToChat(file.name.replace(/\.json$/i, ''));
+                          }}
+                          disabled={isBusy || !onLoadWorkflowPath}
+                          title="Load workflow and open chat pre-filled"
+                          className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] rounded border border-primary/40 text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          Chat →
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => void handleSaveCopyToLibrary(file)}
@@ -322,7 +288,7 @@ export function ComfyUIWorkflowFolderPanel({
                         className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] rounded border border-border-default text-content-faint hover:text-content-secondary hover:bg-surface-inset transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <Copy className="w-3 h-3" />
-                        Save Copy to Library
+                        Save Copy
                       </button>
                     </div>
                   </div>

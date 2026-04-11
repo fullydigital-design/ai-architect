@@ -68,11 +68,24 @@ const DISPLAY_NAMES: Record<string, string> = {
   vae_approx: 'VAE Approx',
 };
 
+async function discoverFolderTypes(url: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${url}/api/models`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return [...MODEL_FOLDER_TYPES];
+    const payload = await response.json();
+    if (Array.isArray(payload) && payload.length > 0) return payload.filter((t): t is string => typeof t === 'string');
+  } catch {
+    // Fall through to hardcoded list
+  }
+  return [...MODEL_FOLDER_TYPES];
+}
+
 export async function fetchAllModelFolders(baseUrl: string): Promise<ModelFolder[]> {
   const url = resolveComfyUrl(baseUrl);
+  const folderTypes = await discoverFolderTypes(url);
 
   const results = await Promise.allSettled(
-    MODEL_FOLDER_TYPES.map(async (folderType) => {
+    folderTypes.map(async (folderType) => {
       const response = await fetch(`${url}/api/models/${encodeURIComponent(folderType)}`, {
         signal: AbortSignal.timeout(10000),
       });

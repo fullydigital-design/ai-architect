@@ -29,6 +29,9 @@ interface SchemaDrawerPanelProps {
   onToggleModelCategory?: (category: string, selected: boolean) => void;
   onResetModelCategories?: () => void;
   onMentionModel?: (filename: string, categoryLabel: string) => void;
+  comfyuiUrl?: string;
+  onLoadWorkflowPath?: (path: string) => Promise<boolean> | boolean;
+  onSendWorkflowToChat?: (workflowName: string) => void;
 }
 
 export function SchemaDrawerPanel({
@@ -55,6 +58,9 @@ export function SchemaDrawerPanel({
   onToggleModelCategory,
   onResetModelCategories,
   onMentionModel,
+  comfyuiUrl,
+  onLoadWorkflowPath,
+  onSendWorkflowToChat,
 }: SchemaDrawerPanelProps) {
   const handleResizeStart = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -167,6 +173,9 @@ export function SchemaDrawerPanel({
           onToggleModelCategory={onToggleModelCategory}
           onResetModelCategories={onResetModelCategories}
           onMentionModel={onMentionModel}
+          comfyuiUrl={comfyuiUrl}
+          onLoadWorkflowPath={onLoadWorkflowPath}
+          onSendWorkflowToChat={onSendWorkflowToChat}
         />
       </div>
 

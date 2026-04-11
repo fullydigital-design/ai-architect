@@ -92,9 +92,11 @@ let rawObjectInfo: Record<string, any> | null = null;
 let inMemoryLiveNodeCache: LiveNodeCache | null = null;
 
 const KNOWN_MODEL_FOLDERS = [
-  'checkpoints', 'loras', 'vae', 'controlnet', 'clip', 'clip_vision',
+  // 'clip' and 'unet' removed — ComfyUI /models/ API returns 404 for those folder names.
+  // Their files are covered by 'text_encoders' and 'diffusion_models' respectively.
+  'checkpoints', 'loras', 'vae', 'controlnet', 'clip_vision',
   'upscale_models', 'embeddings', 'hypernetworks', 'diffusion_models',
-  'text_encoders', 'unet', 'gligen', 'style_models',
+  'text_encoders', 'gligen', 'style_models',
   'diffusers', 'photomaker', 'ipadapter', 'instantid',
   'animatediff_models', 'animatediff_motion_lora',
   'audio_encoders', 'latent_upscale_models', 'configs',

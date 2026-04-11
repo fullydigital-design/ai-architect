@@ -3,6 +3,8 @@ export interface ParsedWorkflow {
   nodeTypes: string[];
   nodeCount: number;
   nodeTypeCounts: Map<string, number>;
+  /** Node types that the workflow itself declares as core via properties.cnr_id === "comfy-core" */
+  coreNodeTypes: Set<string>;
   errors: string[];
   raw: unknown;
 }
@@ -19,12 +21,14 @@ function toParsedWorkflow(
   nodeCount: number,
   errors: string[],
   raw: unknown,
+  coreNodeTypes: Set<string> = new Set(),
 ): ParsedWorkflow {
   return {
     format,
     nodeTypes: [...nodeTypeCounts.keys()],
     nodeCount,
     nodeTypeCounts,
+    coreNodeTypes,
     errors,
     raw,
   };
@@ -44,6 +48,7 @@ export function parseWorkflowJSON(jsonString: string): ParsedWorkflow {
       nodeCount: 0,
       nodeTypeCounts: new Map<string, number>(),
       errors: [`Invalid JSON: ${message}`],
+      coreNodeTypes: new Set(),
       raw: null,
     };
   }
@@ -54,6 +59,7 @@ export function parseWorkflowJSON(jsonString: string): ParsedWorkflow {
       nodeTypes: [],
       nodeCount: 0,
       nodeTypeCounts: new Map<string, number>(),
+      coreNodeTypes: new Set(),
       errors: ['Workflow JSON must be an object'],
       raw: parsed,
     };
@@ -64,6 +70,7 @@ export function parseWorkflowJSON(jsonString: string): ParsedWorkflow {
 
   if (Array.isArray(objectWorkflow.nodes)) {
     const nodes = objectWorkflow.nodes as Array<Record<string, unknown>>;
+    const coreNodeTypes = new Set<string>();
     for (const node of nodes) {
       const nodeType = typeof node?.type === 'string'
         ? node.type
@@ -75,9 +82,14 @@ export function parseWorkflowJSON(jsonString: string): ParsedWorkflow {
         continue;
       }
       pushNodeType(nodeType, nodeTypeCounts);
+      // ComfyUI 0.7+ stamps core nodes with properties.cnr_id === "comfy-core"
+      const props = node.properties as Record<string, unknown> | undefined;
+      if (props?.cnr_id === 'comfy-core') {
+        coreNodeTypes.add(nodeType);
+      }
     }
 
-    return toParsedWorkflow('ui', nodeTypeCounts, nodes.length, errors, parsed);
+    return toParsedWorkflow('ui', nodeTypeCounts, nodes.length, errors, parsed, coreNodeTypes);
   }
 
   const entries = Object.entries(objectWorkflow);
@@ -111,6 +123,7 @@ export function parseWorkflowJSON(jsonString: string): ParsedWorkflow {
     nodeTypes: [],
     nodeCount: 0,
     nodeTypeCounts: new Map<string, number>(),
+    coreNodeTypes: new Set(),
     errors: ['Could not detect supported workflow format'],
     raw: parsed,
   };

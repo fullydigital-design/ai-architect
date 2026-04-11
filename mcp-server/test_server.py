@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python3
 """
 Integration test for comfyui_mcp_server.py
-Simulates what Cursor does: launch as subprocess, communicate via stdio.
+Launch as subprocess, communicate via stdio.
 Requires ComfyUI running at http://127.0.0.1:8188
 """
 
@@ -13,7 +13,7 @@ import time
 
 SERVER_PATH = os.path.join(os.path.dirname(__file__), "comfyui_mcp_server.py")
 
-# Use the same env vars as .cursor/mcp.json
+# Use the same env vars as .mcp.json
 ENV = {
     **os.environ,
     "COMFYUI_URL": "http://127.0.0.1:8188",
@@ -333,11 +333,11 @@ def run_tests():
         print("\nSome tests failed. Fix issues and re-run.")
         sys.exit(1)
     else:
-        print("\nAll tests passed! MCP server is ready for Cursor integration.")
+        print("\nAll tests passed! MCP server is ready.")
         print("\nNext steps:")
-        print("  1. Restart Cursor to pick up .cursor/mcp.json")
-        print("  2. Open Cursor chat and ask: 'What checkpoints do I have installed?'")
-        print("  3. Cursor should call the comfyui MCP tools and return real data")
+        print("  1. Ensure your MCP client config (.mcp.json) points to this server")
+        print("  2. Ask your AI client: 'What checkpoints do I have installed?'")
+        print("  3. The client should call the comfyui MCP tools and return real data")
         sys.exit(0)
 
 

@@ -9,7 +9,7 @@ import {
   updatePack as updatePackViaQueue,
   invalidateDetectionCache,
   invalidateManagerNodeListCache,
-  rebootComfyUI as rebootWithService,
+  rebootAndWait,
   type ManagerNode,
 } from '../app/services/comfyui-manager-service';
 import { resolveComfyUIBaseUrl } from '../services/api-config';
@@ -17,6 +17,7 @@ import { resolveComfyUIBaseUrl } from '../services/api-config';
 export interface UseManagerAPIReturn {
   managerAvailable: boolean;
   isChecking: boolean;
+  isRebooting: boolean;
   packStatuses: Map<string, ManagerNodeStatus>;
   activeAction: { reference: string; action: string } | null;
   checkManager: (comfyuiUrl: string) => Promise<boolean>;
@@ -66,6 +67,7 @@ function toStatus(node: ManagerNode): ManagerNodeStatus {
 export function useManagerAPI(comfyuiUrl?: string): UseManagerAPIReturn {
   const [managerAvailable, setManagerAvailable] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  const [isRebooting, setIsRebooting] = useState(false);
   const [packStatuses, setPackStatuses] = useState<Map<string, ManagerNodeStatus>>(new Map());
   const [activeAction, setActiveAction] = useState<{ reference: string; action: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -327,13 +329,20 @@ export function useManagerAPI(comfyuiUrl?: string): UseManagerAPIReturn {
 
   const rebootComfyUI = useCallback(async (inputUrl: string): Promise<boolean> => {
     setError(null);
+    setIsRebooting(true);
     try {
-      const ok = await rebootWithService(inputUrl);
+      const ok = await rebootAndWait(
+        inputUrl,
+        () => { /* onRebootStarted — already reflected by isRebooting */ },
+        () => { setIsRebooting(false); },
+      );
       if (!ok) {
-        setError('Failed to reboot ComfyUI');
+        setIsRebooting(false);
+        setError('ComfyUI restart timed out or failed');
       }
       return ok;
     } catch (err) {
+      setIsRebooting(false);
       setError(err instanceof Error ? err.message : 'Failed to reboot ComfyUI');
       return false;
     }
@@ -342,6 +351,7 @@ export function useManagerAPI(comfyuiUrl?: string): UseManagerAPIReturn {
   return {
     managerAvailable,
     isChecking,
+    isRebooting,
     packStatuses,
     activeAction,
     checkManager,

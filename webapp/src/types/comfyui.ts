@@ -115,7 +115,7 @@ export type ComfyUIAPIWorkflow = Record<string, ComfyUIAPINode>;
 
 // ===== API Types =====
 
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'openrouter';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'lmstudio';
 
 export interface Message {
   id: string;
@@ -178,6 +178,8 @@ export interface APIKeys {
   anthropic: string;
   google: string;
   openrouter: string;
+  /** LM Studio local server base URL (not an API key — no auth required) */
+  lmstudio: string;
 }
 
 export interface CustomModel {

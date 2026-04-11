@@ -2,17 +2,16 @@
 /**
  * ComfyUI Workflow Architect — MCP Server
  *
- * Exposes ComfyUI operations as MCP tools that Cursor's AI agent can call.
- * Works with any model in Cursor (Codex, Claude, Gemini, etc.).
+ * Exposes ComfyUI operations as MCP tools callable by any MCP-compatible AI client.
  *
  * Architecture:
- *   Cursor IDE  --stdio-->  This MCP Server  --HTTP-->  ComfyUI (localhost:8188)
+ *   MCP Client  --stdio-->  This MCP Server  --HTTP-->  ComfyUI (localhost:8188)
  *                                              --HTTP-->  Architect App (localhost:5173) [optional]
  *
  * Setup:
- *   cd mcp-server && npm install
- *   Configure .cursor/mcp.json (already done)
- *   Restart Cursor
+ *   cd mcp-server && npm install && npm run build
+ *   Configure .mcp.json in the project root
+ *   Restart your MCP client
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -336,19 +335,169 @@ function extractNodeClassesFromNodeListJson(raw: unknown): string[] {
   return Array.from(out);
 }
 
-function extractNodeClassesFromInitPy(content: string): string[] {
-  const mappingMatch = content.match(/NODE_CLASS_MAPPINGS\s*=\s*\{([\s\S]*?)\}/m);
-  if (!mappingMatch) return [];
-
-  const result = new Set<string>();
-  const body = mappingMatch[1];
+function extractStringDictKeys(body: string, result: Set<string>): void {
   const keyRegex = /['"]([^'"]+)['"]\s*:/g;
-  let match: RegExpExecArray | null = null;
-  while ((match = keyRegex.exec(body)) !== null) {
-    if (match[1].trim()) {
-      result.add(match[1].trim());
+  let m: RegExpExecArray | null = null;
+  while ((m = keyRegex.exec(body)) !== null) {
+    if (m[1].trim()) result.add(m[1].trim());
+  }
+}
+
+function extractBracedBlock(content: string, startIndex: number): string {
+  let depth = 0;
+  let i = startIndex;
+  while (i < content.length) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') {
+      depth--;
+      if (depth === 0) return content.slice(startIndex, i + 1);
+    }
+    i++;
+  }
+  return '';
+}
+
+function extractNodeClassesFromPyContent(content: string): string[] {
+  const result = new Set<string>();
+
+  // Pattern 1: *_CLASS_MAPPINGS = { ... } or NODE_CLASS_MAPPINGS = { ... }
+  // Uses brace-counting to handle nested structures (fixes Crystools, essentials submodules)
+  const mappingDictRegex = /\b\w*(?:CLASS|NODE)_MAPPINGS\s*=\s*\{/g;
+  let m1: RegExpExecArray | null = null;
+  while ((m1 = mappingDictRegex.exec(content)) !== null) {
+    const braceStart = content.indexOf('{', m1.index + m1[0].length - 1);
+    if (braceStart !== -1) {
+      const block = extractBracedBlock(content, braceStart);
+      extractStringDictKeys(block, result);
     }
   }
+
+  // Pattern 2: NODE_CLASS_MAPPINGS["ClassName"] = ...
+  const subscriptRegex = /(?:NODE_CLASS_MAPPINGS|NODE_CONFIG)\s*\[\s*['"]([^'"]+)['"]\s*\]/g;
+  let m2: RegExpExecArray | null = null;
+  while ((m2 = subscriptRegex.exec(content)) !== null) {
+    if (m2[1].trim()) result.add(m2[1].trim());
+  }
+
+  // Pattern 3: NODE_CLASS_MAPPINGS.update({"ClassName": ...})
+  const updateRegex = /\w+(?:_CLASS_MAPPINGS|_NODE_MAPPINGS)\.update\s*\(\s*\{/g;
+  let m3: RegExpExecArray | null = null;
+  while ((m3 = updateRegex.exec(content)) !== null) {
+    const braceStart = content.indexOf('{', m3.index + m3[0].length - 1);
+    if (braceStart !== -1) {
+      const block = extractBracedBlock(content, braceStart);
+      extractStringDictKeys(block, result);
+    }
+  }
+
+  // Pattern 4: NODE_CONFIG = { "NodeName": { ... }, ... } (KJNodes-style)
+  const nodeConfigRegex = /\bNODE_CONFIG\s*=\s*\{/g;
+  let m4: RegExpExecArray | null = null;
+  while ((m4 = nodeConfigRegex.exec(content)) !== null) {
+    const braceStart = content.indexOf('{', m4.index + m4[0].length - 1);
+    if (braceStart !== -1) {
+      const block = extractBracedBlock(content, braceStart);
+      extractStringDictKeys(block, result);
+    }
+  }
+
+  return Array.from(result);
+}
+
+// Pattern 5: NAME = "string" class attributes (indented, string literal)
+function extractNameAttributes(content: string): string[] {
+  const result = new Set<string>();
+  const nameAttrRegex = /^\s{2,8}NAME\s*=\s*['"]([^'"]+)['"]/gm;
+  let m: RegExpExecArray | null = null;
+  while ((m = nameAttrRegex.exec(content)) !== null) {
+    if (m[1].trim()) result.add(m[1].trim());
+  }
+  return Array.from(result);
+}
+
+// Pattern 6: enum _NAME values (Crystools-style)
+// e.g. CBOOLEAN_NAME = 'Primitive boolean [Crystools]'
+function extractEnumNameValues(content: string): string[] {
+  const result = new Set<string>();
+  // Only match keys ending in _NAME (not _DESC, _TYPE, etc.)
+  const enumNameRegex = /^\s*\w+_NAME\s*=\s*['"]([^'"]+)['"]/gm;
+  let m: RegExpExecArray | null = null;
+  while ((m = enumNameRegex.exec(content)) !== null) {
+    if (m[1].trim()) result.add(m[1].trim());
+  }
+  return Array.from(result);
+}
+
+// Pattern 7: NAME = get_name("X") (rgthree-style) - requires namespace string
+function extractGetNameCalls(content: string, namespace: string): string[] {
+  const result = new Set<string>();
+  // Matches: NAME = get_name("X"), NODE_NAME = get_name('X'), _NODE_NAME = get_name("X")
+  const getNameRegex = /\bNAME\s*=\s*get_name\(\s*['"]([^'"]+)['"]\s*\)/g;
+  let m: RegExpExecArray | null = null;
+  while ((m = getNameRegex.exec(content)) !== null) {
+    result.add(`${m[1].trim()} (${namespace})`);
+  }
+  return Array.from(result);
+}
+
+function extractNodeClassesFromInitPy(content: string): string[] {
+  return extractNodeClassesFromPyContent(content);
+}
+
+async function extractNodeClassesFromSubmodules(packPath: string): Promise<string[]> {
+  const result = new Set<string>();
+
+  // Detect get_name namespace (rgthree-style): look for NAMESPACE = '...' in constants files
+  let getNameNamespace = '';
+  for (const candidate of ['constants.py', 'py/constants.py', 'nodes/constants.py']) {
+    const content = await safeReadFile(path.join(packPath, candidate));
+    if (content) {
+      const nsMatch = content.match(/^NAMESPACE\s*=\s*['"]([^'"]+)['"]/m);
+      if (nsMatch) { getNameNamespace = nsMatch[1]; break; }
+    }
+  }
+
+  async function scanDir(dir: string, depth: number): Promise<void> {
+    if (depth > 3) return;
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name === '__pycache__' || entry.name.startsWith('.')) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await scanDir(fullPath, depth + 1);
+      } else if (entry.isFile() && entry.name.endsWith('.py') && entry.name !== '__init__.py') {
+        const content = await safeReadFile(fullPath);
+        if (!content) continue;
+
+        // Standard: *_CLASS_MAPPINGS or NODE_CONFIG
+        if (content.includes('_CLASS_MAPPINGS') || content.includes('NODE_CONFIG')) {
+          for (const cls of extractNodeClassesFromPyContent(content)) result.add(cls);
+        }
+
+        // rgthree-style: NAME = get_name("X") with known namespace
+        if (getNameNamespace && content.includes('get_name(')) {
+          for (const cls of extractGetNameCalls(content, getNameNamespace)) result.add(cls);
+        }
+
+        // Crystools-style: enum _NAME = "value" entries
+        if (content.includes('_NAME') && content.includes('Enum')) {
+          for (const cls of extractEnumNameValues(content)) result.add(cls);
+        }
+
+        // String literal NAME = "..." class attributes
+        if (content.includes('NAME')) {
+          for (const cls of extractNameAttributes(content)) result.add(cls);
+        }
+      }
+    }
+  }
+
+  await scanDir(packPath, 0);
   return Array.from(result);
 }
 
@@ -410,6 +559,11 @@ async function scanInstalledNodePacks(customNodesDir: string): Promise<Installed
       if (initContent) {
         nodeClasses = extractNodeClassesFromInitPy(initContent);
       }
+    }
+
+    // Fallback: recursively scan all .py submodules for dynamic registrations
+    if (nodeClasses.length === 0) {
+      nodeClasses = await extractNodeClassesFromSubmodules(packPath);
     }
 
     const files = await fs.readdir(packPath).catch(() => [] as string[]);

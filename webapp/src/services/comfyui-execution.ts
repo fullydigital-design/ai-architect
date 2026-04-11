@@ -579,6 +579,120 @@ function stripFrontendOnlyNodes(prompt: Record<string, any>): Record<string, any
 
 // ── Phase 4: Debug Prompt Builder ────────────────────────────────────────────
 
+const CLIP_LOADER_TYPES = new Set([
+  'CLIPLoader', 'DualCLIPLoader', 'CLIPLoaderGGUF', 'DualCLIPLoaderGGUF',
+]);
+const UNET_LOADER_TYPES = new Set([
+  'UNETLoader', 'UnetLoaderGGUF', 'CheckpointLoaderSimple', 'CheckpointLoader',
+]);
+
+/**
+ * Walk backward through workflow links to find all upstream CLIP loader nodes
+ * that ultimately feed into a given node (by traversing the link graph).
+ */
+function findUpstreamClipLoaders(
+  nodeId: number,
+  workflow: ComfyUIWorkflow,
+  visited = new Set<number>(),
+): Array<{ type: string; id: number; modelFile: string }> {
+  if (visited.has(nodeId)) return [];
+  visited.add(nodeId);
+
+  const results: Array<{ type: string; id: number; modelFile: string }> = [];
+  const node = workflow.nodes.find(n => n.id === nodeId);
+  if (!node) return results;
+
+  if (CLIP_LOADER_TYPES.has(node.type || '')) {
+    const modelFile = String(node.widgets_values?.[0] ?? '');
+    results.push({ type: node.type || 'CLIPLoader', id: node.id, modelFile });
+    return results;
+  }
+
+  // Walk upstream links
+  for (const link of workflow.links) {
+    if (link[3] === nodeId) {
+      results.push(...findUpstreamClipLoaders(link[1], workflow, visited));
+    }
+  }
+  return results;
+}
+
+/**
+ * Parse "mat1 and mat2 shapes cannot be multiplied (AxB and CxD)" and return
+ * { inputDim: B, weightIn: C, weightOut: D } for shape analysis.
+ */
+function parseMatMulShapes(message: string): { inputDim: number; weightIn: number; weightOut: number } | null {
+  const m = /\((\d+)x(\d+)\s+and\s+(\d+)x(\d+)\)/.exec(message);
+  if (!m) return null;
+  return { inputDim: Number(m[2]), weightIn: Number(m[3]), weightOut: Number(m[4]) };
+}
+
+/**
+ * Build a pre-parsed diagnosis for known error classes.
+ * Returns a markdown section string, or null if no specific diagnosis matched.
+ */
+function buildDiagnosis(
+  result: ExecutionResult,
+  workflow: ComfyUIWorkflow,
+): string | null {
+  const ed = result.errorDetails;
+  if (!ed) return null;
+
+  const tb = (ed.traceback ?? []).join('\n');
+  const msg = ed.exceptionMessage ?? '';
+
+  // ── Pattern: tensor matmul shape mismatch ───────────────────────────────────
+  if (ed.exceptionType === 'RuntimeError' && msg.includes('shapes cannot be multiplied')) {
+    const shapes = parseMatMulShapes(msg);
+
+    // Detect FLUX txt_in mismatch: error in ldm/flux/model.py at txt_in
+    // → the text encoder outputs wrong hidden-dim for this diffusion model
+    const isFluxTxtIn = tb.includes('txt_in') || tb.includes('ldm/flux/model');
+
+    const lines: string[] = [];
+    lines.push(`## Pre-Parsed Diagnosis`);
+    lines.push(`**Error class:** Tensor shape mismatch during matrix multiply`);
+
+    if (shapes) {
+      lines.push(`**Input tensor dim:** ${shapes.inputDim} (what the text encoder produced)`);
+      lines.push(`**Weight matrix:** ${shapes.weightIn}×${shapes.weightOut} (what the diffusion model's projection expects as input: ${shapes.weightIn})`);
+    }
+
+    if (isFluxTxtIn) {
+      lines.push(`**Location:** FLUX transformer \`txt_in\` input projection — this is the FIRST layer that consumes text encoder output.`);
+      lines.push(`**Root cause:** The CLIP/text encoder model file produces embeddings with hidden_size=${shapes?.inputDim ?? '?'}, but the FLUX diffusion model's \`txt_in\` projection weight expects hidden_size=${shapes?.weightIn ?? '?'}. These are incompatible models.`);
+      lines.push(`**The ONLY fix is to change the CLIP/text encoder model.** No parameter change, sampler swap, or structural modification will resolve a hidden-dimension incompatibility.`);
+    } else {
+      lines.push(`**Root cause:** A tensor entering a linear layer has the wrong last dimension. This is almost always caused by loading a model file that belongs to a different architecture than what the workflow expects.`);
+    }
+
+    // Find which CLIP loaders feed the failing node
+    if (ed.nodeId) {
+      const clipLoaders = findUpstreamClipLoaders(Number(ed.nodeId), workflow);
+      if (clipLoaders.length > 0) {
+        lines.push(`\n**Current text encoder(s) feeding the failing node:**`);
+        for (const cl of clipLoaders) {
+          lines.push(`- ${cl.type} #${cl.id}: \`${cl.modelFile || '(unknown)'}\` → produces ${shapes?.inputDim ?? '?'}-dim embeddings`);
+        }
+        lines.push(`**Action required:** Replace the model file(s) above with one that produces ${shapes?.weightIn ?? '?'}-dim embeddings and is compatible with the loaded diffusion model.`);
+      }
+    }
+
+    // Find the UNET/checkpoint being used
+    const unetNode = workflow.nodes.find(n => UNET_LOADER_TYPES.has(n.type || ''));
+    if (unetNode) {
+      const unetFile = String(unetNode.widgets_values?.[0] ?? '');
+      lines.push(`\n**Diffusion model in use:** ${unetNode.type} #${unetNode.id}: \`${unetFile}\``);
+      lines.push(`The text encoder you select MUST be from the same model family as this diffusion model.`);
+    }
+
+    lines.push(`\nTIPS: If you have any "Load CLIP" or "*CLIP Loader" nodes in your workflow connected to this sampler node make sure the correct file(s) and type is selected.`);
+    return lines.join('\n');
+  }
+
+  return null;
+}
+
 /**
  * Build an AI debug prompt from an execution error, including the error context,
  * traceback, failing node details, and a snippet of the workflow.
@@ -597,6 +711,12 @@ export function buildDebugPrompt(
   if (ed?.exceptionType) parts.push(`**Exception type:** \`${ed.exceptionType}\``);
   if (ed?.exceptionMessage) parts.push(`**Message:** ${ed.exceptionMessage}`);
   if (!ed?.exceptionType && result.error) parts.push(`**Error:** ${result.error}`);
+
+  // Pre-parsed diagnosis for known error classes (injected before node details)
+  const diagnosis = buildDiagnosis(result, workflow);
+  if (diagnosis) {
+    parts.push(`\n${diagnosis}`);
+  }
 
   // Failing node context
   if (ed?.nodeId) {

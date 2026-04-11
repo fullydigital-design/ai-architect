@@ -2,10 +2,10 @@
   "_comment": "Central ComfyUI path config. Edit this ONE file when you move ComfyUI.",
   "_updated": "2026-03-20",
   "comfyui_api_url": "http://127.0.0.1:8188",
-  "comfyui_root": "C:\\_AI\\_test_fresh_all_AI\\ComfyUI",
-  "custom_nodes_dir": "C:\\_AI\\_test_fresh_all_AI\\ComfyUI\\custom_nodes",
-  "models_dir": "C:\\_AI\\_test_fresh_all_AI\\models",
-  "output_dir": "C:\\_AI\\_test_fresh_all_AI\\ComfyUI\\output",
+  "comfyui_root": "E:\\_AI_IMG\\ComfyUI",
+  "custom_nodes_dir": "E:\\_AI_IMG\\ComfyUI\\custom_nodes",
+  "models_dir": "E:\\_AI_IMG\\_models",
+  "output_dir": "E:\\_AI_IMG\\ComfyUI\\output",
   "python_exe": "C:\\Users\\M\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
   "webapp_dir": "E:\\_AI\\AI_architect\\webapp"
 }

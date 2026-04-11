@@ -750,7 +750,7 @@ export function validateWorkflow(workflow: ComfyUIWorkflow): LegacyValidationRes
         nodeId: node.id,
         details: `Widget values stale from previous node type (${node.widgets_values.length} values, expected ${widgetCountExpectation.baseCount}${widgetCountExpectation.companionCount > 0 ? ` or ${widgetCountExpectation.withCompanions} with companions` : ''}) on ${node.type}. Re-apply node replacement or fix widget values.`,
       });
-      console.log(
+      console.debug(
         `[Validator] Widget mismatch for ${node.type} (node ${node.id}): ` +
         `values count ${node.widgets_values.length} !== expected ${widgetCountExpectation.baseCount}`
         + `${widgetCountExpectation.companionCount > 0 ? ` (or ${widgetCountExpectation.withCompanions} with companions)` : ''}`,

@@ -361,9 +361,15 @@ export const DetectedPacksCard = memo(function DetectedPacksCard({
     onRefreshInstallation?.();
   }, [onRefreshInstallation]);
 
+  // Stable string key so the effect only re-runs when the actual node types change,
+  // not on every render due to inline-computed array reference inequality.
+  const unknownMissingKey = unknownMissingNodeTypes.join('\0');
+
   useEffect(() => {
-    if (unknownMissingNodeTypes.length === 0) {
-      setMappedPackHintsByNode(new Map());
+    const nodeTypes = unknownMissingKey ? unknownMissingKey.split('\0') : [];
+    if (nodeTypes.length === 0) {
+      // Functional update avoids re-renders when the map is already empty.
+      setMappedPackHintsByNode((prev) => (prev.size === 0 ? prev : new Map()));
       return;
     }
 
@@ -374,7 +380,7 @@ export const DetectedPacksCard = memo(function DetectedPacksCard({
         const mapping = await nodePackMapper.getNodeToPackMapping();
         if (cancelled) return;
         const next = new Map<string, { title: string; is_installed: boolean }>();
-        for (const nodeType of unknownMissingNodeTypes) {
+        for (const nodeType of nodeTypes) {
           const mappedPack = mapping.nodeClassToPack.get(nodeType);
           if (mappedPack) {
             next.set(nodeType, {
@@ -392,7 +398,7 @@ export const DetectedPacksCard = memo(function DetectedPacksCard({
     return () => {
       cancelled = true;
     };
-  }, [unknownMissingNodeTypes]);
+  }, [unknownMissingKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePinAll = () => {
     const toPinInfos = unpinnedPacks.map(p => toPackInfo(p));

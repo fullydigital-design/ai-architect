@@ -9,7 +9,7 @@ import type {
   RequiredNode,
   ValidationResult as LegacyValidationResult,
   AppPreferences,
-  WorkflowTemplate,
+  // WorkflowTemplate, // REMOVED: Templates feature
 } from '../types/comfyui';
 import { DEFAULT_PREFERENCES } from '../types/comfyui';
 import { callAI, getAPIKeyForModel, PROVIDER_INFO, getAllModels, getProviderForModel } from '../services/ai-provider';
@@ -104,8 +104,6 @@ import { attemptIdRecovery, detectIdRewrite, mergeWorkflows, type MergeReport } 
 import { extractWorkflowMetadata } from '../services/workflow-metadata-extractor';
 import { injectWorkflowNote } from '../services/workflow-note-injector';
 import { sanitizeWorkflow } from '../services/workflow-sanitizer';
-import { saveAsTemplate } from '../services/template-service';
-import { buildCombinePrompt } from '../services/workflow-combiner';
 import {
   listComfyUIWorkflows,
   loadComfyUIWorkflow,
@@ -120,8 +118,6 @@ import { WorkflowActions } from './components/workflow-architect/WorkflowActions
 import { ProviderConfig } from './components/workflow-architect/ProviderConfig';
 import { ExecutionPanel } from './components/workflow-architect/ExecutionPanel';
 import { ExperimentPanel } from './components/workflow-architect/ExperimentPanel';
-import { CombineWorkflowsDialog } from './components/workflow-architect/CombineWorkflowsDialog';
-import { TemplateManagerPanel } from './components/template-manager/TemplateManagerPanel';
 import { MergeWizardPanel } from './components/workflow-merger/MergeWizardPanel';
 import { ValidationReportPanel } from './components/validation-report/ValidationReportPanel';
 import { ValidationBadge } from './components/validation-report/ValidationBadge';
@@ -133,6 +129,9 @@ import CommandCenter from './components/CommandCenter';
 const MAX_SELF_CORRECTION_RETRIES = 2;
 const EMPTY_DETECTED_PACKS: DetectedPack[] = [];
 const LIVE_NODE_CACHE_FRESH_MS = 60 * 60 * 1000;
+// Max tokens allowed for schema injection. If 'full' mode would exceed this,
+// auto-downgrade to 'compact' to prevent model context overflow.
+const SCHEMA_TOKEN_HARD_CAP = 25_000;
 type ChatMode = 'build' | 'brainstorm';
 type WorkflowRecommendationWithAvailability = WorkflowRecommendation & {
   nodes: Array<RecommendedNode & { available: boolean }>;
@@ -344,10 +343,10 @@ export default function App() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
   const [requiredNodes, setRequiredNodes] = useState<RequiredNode[]>([]);
   const [showNodesBrowser, setShowNodesBrowser] = useState(false);
-  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  // const [showTemplateManager, setShowTemplateManager] = useState(false); // REMOVED: Templates feature
   const [showWorkflowMerger, setShowWorkflowMerger] = useState(false);
-  const [combineTemplates, setCombineTemplates] = useState<WorkflowTemplate[]>([]);
-  const [showCombineDialog, setShowCombineDialog] = useState(false);
+  // const [combineTemplates, setCombineTemplates] = useState<WorkflowTemplate[]>([]); // REMOVED: Templates feature
+  // const [showCombineDialog, setShowCombineDialog] = useState(false); // REMOVED: Templates feature
   const [openChatTabSignal, setOpenChatTabSignal] = useState(0);
   const [useLibraryReferences, setUseLibraryReferences] = useState(() => {
     try {
@@ -428,6 +427,7 @@ export default function App() {
             anthropic: parsed.keys?.anthropic || '',
             google: parsed.keys?.google || '',
             openrouter: parsed.keys?.openrouter || '',
+            lmstudio: parsed.keys?.lmstudio || 'http://localhost:1234/v1',
           },
           selectedModel: parsed.selectedModel || 'gpt-5.2-2025-12-11',
           customModels: parsed.customModels || [],
@@ -439,7 +439,7 @@ export default function App() {
       } catch {}
     }
     return {
-      keys: { openai: '', anthropic: '', google: '', openrouter: '' },
+      keys: { openai: '', anthropic: '', google: '', openrouter: '', lmstudio: 'http://localhost:1234/v1' },
       selectedModel: 'gpt-5.2-2025-12-11',
       customModels: [],
       githubToken: '',
@@ -597,6 +597,7 @@ export default function App() {
   const [comfyuiWorkflowSubfolders, setComfyuiWorkflowSubfolders] = useState<string[]>([]);
   const [lastExecutedWorkflowRef, setLastExecutedWorkflowRef] = useState<ComfyUIWorkflow | null>(null);
   const cancelExecutionRef = useRef<(() => void) | null>(null);
+  const aiAbortControllerRef = useRef<AbortController | null>(null);
   const [validationResult, setValidationResult] = useState<PipelineValidationResult | null>(null);
   const [showValidationReport, setShowValidationReport] = useState(false);
   const [schemaValidationGate, setSchemaValidationGate] = useState<{
@@ -1047,11 +1048,55 @@ export default function App() {
       }
     }
 
-    const liveSchemaMode = schemaSelectorState.mode === 'full' ? 'full' : 'compact';
-    const section = buildSchemaDrawerSection(selectedNodeMap, {
+    let liveSchemaMode: 'compact' | 'full' = schemaSelectorState.mode === 'full' ? 'full' : 'compact';
+    let section = buildSchemaDrawerSection(selectedNodeMap, {
       mode: liveSchemaMode,
       nodeToPackTitle,
     });
+
+    // === Token budget enforcement (3 tiers) ===
+    // Goal: keep schema injection under SCHEMA_TOKEN_HARD_CAP tokens per request.
+    // Selector state is never mutated — these are prompt-time adaptations only.
+
+    // Tier 1: full → compact
+    if (liveSchemaMode === 'full' && Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
+      console.warn(
+        `[SchemaDrawer] Tier 1: full→compact (~${Math.ceil(section.length / 4)} tokens > ${SCHEMA_TOKEN_HARD_CAP} cap)`,
+      );
+      liveSchemaMode = 'compact';
+      section = buildSchemaDrawerSection(selectedNodeMap, {
+        mode: 'compact',
+        nodeToPackTitle,
+        log: false,
+      });
+    }
+
+    // Tier 2: compact but too many nodes → drop core ComfyUI packs (AI knows them intrinsically)
+    if (Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
+      const coreTitles = new Set(selectorClassifiedPacks.filter((p) => p.isCore).map((p) => p.title));
+      const customOnly: typeof selectedNodeMap = Object.fromEntries(
+        Object.entries(selectedNodeMap).filter(([nodeName]) => {
+          const packTitle = nodeToPackTitle.get(nodeName);
+          return !packTitle || !coreTitles.has(packTitle);
+        }),
+      );
+      console.warn(
+        `[SchemaDrawer] Tier 2: trimmed to ${Object.keys(customOnly).length} custom-pack nodes (dropped ${Object.keys(selectedNodeMap).length - Object.keys(customOnly).length} core nodes)`,
+      );
+      section = buildSchemaDrawerSection(customOnly, {
+        mode: 'compact',
+        nodeToPackTitle,
+        log: false,
+      });
+    }
+
+    // Tier 3: still over cap → skip entirely with a brief notice
+    if (Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
+      console.warn(
+        `[SchemaDrawer] Tier 3: skipping schema injection (${Object.keys(selectedNodeMap).length} nodes still too large)`,
+      );
+      section = `\n## Live Node Schemas\n\n> Schema injection skipped: ${Object.keys(selectedNodeMap).length} nodes selected exceeds context budget. Reduce selection in the Schema Drawer.\n`;
+    }
 
     return {
       section,
@@ -1274,6 +1319,9 @@ ${getModificationExamples()}
     let fullResponse = '';
     setStreamingContent('');
 
+    const abortController = new AbortController();
+    aiAbortControllerRef.current = abortController;
+
     const response = await callAI({
       settings,
       messages: conversationHistory,
@@ -1282,6 +1330,7 @@ ${getModificationExamples()}
         setStreamingContent(prev => prev + chunk);
       },
       systemPromptOverride,
+      signal: abortController.signal,
     });
 
     const finalResponse = fullResponse || response.text;
@@ -1439,13 +1488,25 @@ ${getModificationExamples()}
       const beforeWorkflow = currentWorkflow;
 
       // Build conversation history
-      const conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [
         ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         { role: 'user' as const, content: augmentedContent },
       ];
 
       const requestMode = detectRequestMode(content, !!beforeWorkflow);
       const useOperationModify = chatMode === 'build' && requestMode === 'modify' && !!beforeWorkflow;
+
+      // For modification requests, trim history to the last 6 messages (3 exchanges).
+      // The modification system prompt already embeds the full workflow + preservation rules,
+      // so older history is mostly noise and inflates the input past the model's context limit.
+      if (useOperationModify && conversationHistory.length > 7) {
+        const currentMsg = conversationHistory[conversationHistory.length - 1];
+        const trimmed = conversationHistory.slice(0, -1).slice(-6);
+        console.log(
+          `[Modify] Trimmed history: ${conversationHistory.length - 1} → ${trimmed.length} messages (kept last 3 exchanges)`,
+        );
+        conversationHistory = [...trimmed, currentMsg];
+      }
 
       let systemPromptOverride: string | undefined;
       if (chatMode === 'brainstorm') {
@@ -1465,6 +1526,8 @@ ${getModificationExamples()}
 
       if (chatMode === 'brainstorm') {
         let fullResponse = '';
+        const abortController = new AbortController();
+        aiAbortControllerRef.current = abortController;
         const response = await callAI({
           settings,
           messages: conversationHistory,
@@ -1473,6 +1536,7 @@ ${getModificationExamples()}
             setStreamingContent((prev) => prev + chunk);
           },
           systemPromptOverride,
+          signal: abortController.signal,
         });
         const finalResponse = fullResponse || response.text;
         const inputChars = (systemPromptOverride?.length ?? 0)
@@ -1510,6 +1574,7 @@ ${getModificationExamples()}
       const { finalResponse, workflow, parsed } = await callAIAndParse(conversationHistory, systemPromptOverride);
       let responseWorkflow = workflow;
       let requiredNodesFromResponse = parsed.requiredNodes;
+      let skipMergeWithOriginal = false;
       if (parsed.conversionWarnings && parsed.conversionWarnings.length > 0) {
         console.warn('[API->Graph] Conversion warnings:', parsed.conversionWarnings);
       }
@@ -1537,6 +1602,53 @@ ${getModificationExamples()}
             }
             fallbackWorkflow = enrichWorkflowNodes(fallbackWorkflow);
             fallbackWorkflow = resolveOverlaps(fallbackWorkflow);
+          }
+
+          // Guard: detect when the AI generated a fresh workflow instead of modifying ours.
+          // Two scenarios produce type-mismatched IDs in a fallback:
+          //   A) Confused rewrite: AI kept original node IDs but changed their types
+          //      → Bad output, reject with error.
+          //   B) Fresh replacement: AI started from ID=1; coincidental ID collision with original
+          //      → Valid (e.g., "Core Node Swap" produces entirely new structure)
+          //      → Accept but apply as a full replacement (skip merge).
+          // Distinguishing signal: if max(fallback IDs) is much smaller than max(original IDs),
+          // the AI generated sequential IDs from scratch — it's a fresh workflow.
+          if (fallbackWorkflow && beforeWorkflow) {
+            const origMap = new Map((beforeWorkflow.nodes || []).map((n) => [n.id, n]));
+            const origMaxId = Math.max(...(beforeWorkflow.nodes || []).map((n) => n.id), 0);
+            const fallbackMaxId = Math.max(...(fallbackWorkflow.nodes || []).map((n) => n.id), 0);
+            const typeChanges = (fallbackWorkflow.nodes || []).filter((n) => {
+              const orig = origMap.get(n.id);
+              return orig && orig.type !== n.type;
+            });
+
+            const isFreshWorkflow = origMaxId > 20 && fallbackMaxId <= 20;
+
+            if (typeChanges.length > 1 && !isFreshWorkflow) {
+              // Case A: confused partial rewrite — reject
+              const changed = typeChanges.map((n) => {
+                const orig = origMap.get(n.id)!;
+                return `${orig.type}→${n.type}`;
+              }).join(', ');
+              console.warn(`[Modify] Fallback rejected: ${typeChanges.length} node type(s) changed (${changed}). AI likely ignored preservation rules due to context overflow.`);
+              toast.error(`Modification failed: AI rewrote ${typeChanges.length} node type(s) instead of modifying the workflow. Try shortening the conversation or retrying.`);
+              const assistantMessage: Message = {
+                id: generateId(),
+                role: 'assistant',
+                content: `${extractMarkdownSections(finalResponse) || finalResponse}\n\n---\n*Modification rejected: the AI generated a new workflow with different node types (${changed}). This usually means the model ran out of context. Try clearing some messages or retrying.*`,
+                timestamp: Date.now(),
+              };
+              setMessages(prev => [...prev, assistantMessage]);
+              return;
+            }
+
+            if (isFreshWorkflow && fallbackWorkflow) {
+              // Case B: clean fresh workflow — apply directly, skip merge with original
+              console.log(`[Modify] Fallback is a fresh workflow (max IDs: orig=${origMaxId}, new=${fallbackMaxId}), applying as replacement.`);
+              toast.info('Applied AI-generated workflow (full replacement).');
+              responseWorkflow = fallbackWorkflow;
+              skipMergeWithOriginal = true;
+            }
           }
 
           if (fallbackWorkflow) {
@@ -1610,7 +1722,7 @@ ${getModificationExamples()}
         resultValidation = correctionResult.validation;
       }
 
-      if (requestMode === 'modify' && beforeWorkflow && resultWorkflow) {
+      if (requestMode === 'modify' && beforeWorkflow && resultWorkflow && !skipMergeWithOriginal) {
         logPostModificationDiagnosis(beforeWorkflow, resultWorkflow);
 
         if (detectIdRewrite(beforeWorkflow, resultWorkflow)) {
@@ -1704,20 +1816,25 @@ ${getModificationExamples()}
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error: any) {
-      console.error('AI call failed:', error);
-      toast.error(error.message || 'Failed to generate workflow');
-
-      const errorMessage: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: `Error: ${error.message || 'Failed to generate workflow. Please check your API key and try again.'}`,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      // AbortError = user clicked Stop — show nothing
+      if (error?.name === 'AbortError' || error?.message === 'signal is aborted without reason') {
+        console.log('[AI] Generation stopped by user.');
+      } else {
+        console.error('AI call failed:', error);
+        toast.error(error.message || 'Failed to generate workflow');
+        const errorMessage: Message = {
+          id: generateId(),
+          role: 'assistant',
+          content: `Error: ${error.message || 'Failed to generate workflow. Please check your API key and try again.'}`,
+          timestamp: Date.now(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
     } finally {
       setIsLoading(false);
       setStreamingContent('');
       setCorrectionStatus('');
+      aiAbortControllerRef.current = null;
     }
   }, [
     settings,
@@ -1738,7 +1855,14 @@ ${getModificationExamples()}
     schemaSelectorState,
   ]);
 
-  // "Ask AI to Fix" callback â€” triggered from WorkflowActions validation panel
+  const handleStopGeneration = useCallback(() => {
+    if (aiAbortControllerRef.current) {
+      aiAbortControllerRef.current.abort();
+      aiAbortControllerRef.current = null;
+    }
+  }, []);
+
+  // “Ask AI to Fix” callback — triggered from WorkflowActions validation panel
   const handleRequestFix = useCallback(async (workflow: ComfyUIWorkflow, validation: LegacyValidationResult) => {
     const activeKey = getAPIKeyForModel(settings);
     const provider = getProviderForModel(settings.selectedModel, settings.customModels);
@@ -1913,40 +2037,18 @@ ${getModificationExamples()}
     }
   }, [loadWorkflowIntoApp]);
 
-  const handleLoadTemplateWorkflow = useCallback(async (workflow: any, name: string) => {
-    if (!workflow || typeof workflow !== 'object') {
-      toast.error('Template does not include a valid workflow JSON.');
-      return;
-    }
-
-    await loadWorkflowIntoApp(workflow as ComfyUIWorkflow, name, {
-      summaryFallback: `Template loaded: ${name}`,
-      toastMessage: `Loaded template: ${name}`,
-      noteName: `Template: ${name}`,
-      noteDescription: `Loaded from template: ${name}`,
-      commitLabel: `Template: ${name}`,
-    });
-  }, [loadWorkflowIntoApp]);
-
-  const handleOpenTemplateManager = useCallback(() => {
-    setShowTemplateManager(true);
-  }, []);
+  // REMOVED: Templates feature — handleLoadTemplateWorkflow, handleOpenTemplateManager
 
   const handleOpenWorkflowMerger = useCallback(() => {
     setShowWorkflowMerger(true);
   }, []);
 
-  const handleSaveCurrentAsTemplate = useCallback(() => {
-    if (!currentWorkflow) {
-      toast.info('Load or generate a workflow first.');
-      return;
-    }
-    const defaultName = `Workflow ${new Date().toISOString().slice(0, 10)}`;
-    const name = window.prompt('Template name:', defaultName);
-    if (!name) return;
-    saveAsTemplate(currentWorkflow, name);
-    toast.success(`Saved template: ${name}`);
-  }, [currentWorkflow]);
+  const handleWorkflowSendToChat = useCallback((workflowName: string) => {
+    setPendingContextMessage(`"${workflowName}" — `);
+    setOpenChatTabSignal((prev) => prev + 1);
+  }, []);
+
+  // REMOVED: Templates feature — handleSaveCurrentAsTemplate
 
   const handleOpenNodesBrowser = useCallback(() => {
     setShowNodesBrowser(true);
@@ -1963,9 +2065,7 @@ ${getModificationExamples()}
           setCurrentWorkflow(prev);
           toast.info(`Undo: ${label}`);
         }
-      } else if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 't') {
-        event.preventDefault();
-        setShowTemplateManager((prev) => !prev);
+      // Ctrl+Shift+T removed — Templates feature removed
       } else if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'm') {
         event.preventDefault();
         setShowWorkflowMerger((prev) => !prev);
@@ -2158,12 +2258,6 @@ ${getModificationExamples()}
       (sum, pack) => sum + countSelectedNodesForPack(next, pack),
       0,
     );
-    console.log('[SchemaSelector] State updated:', {
-      mode: next.mode,
-      selectedNodes,
-      selectedPacks: getSelectedPackIds(next, selectorClassifiedPacks),
-      lastUpdated: next.lastUpdated,
-    });
     setSchemaSelectorState(next);
   }, [selectorClassifiedPacks]);
 
@@ -2353,6 +2447,13 @@ ${getModificationExamples()}
 
     void handleSendMessage(pendingBuildApplyMessage);
     setPendingBuildApplyMessage(null);
+    // After dispatching the build request, downgrade schema mode from 'full' → 'compact'
+    // so subsequent chat/modify messages don't re-inject the full node schema corpus.
+    setSchemaSelectorState((prev) =>
+      prev.mode === 'full'
+        ? { ...prev, mode: 'compact', lastUpdated: Date.now() }
+        : prev,
+    );
   }, [pendingBuildApplyMessage, chatMode, isLoading, handleSendMessage]);
 
   useEffect(() => {
@@ -2827,20 +2928,7 @@ ${getModificationExamples()}
     setCurrentWorkflow(optimizedWorkflow);
   }, []);
 
-  const handleCombineWorkflowsRequest = useCallback((templates: WorkflowTemplate[]) => {
-    setCombineTemplates(templates);
-    setShowCombineDialog(true);
-  }, []);
-
-  const handleConfirmCombineWorkflows = useCallback((templates: WorkflowTemplate[]) => {
-    const combineMessage = buildCombinePrompt(templates);
-    setShowCombineDialog(false);
-    setCombineTemplates([]);
-    setChatMode('build');
-    setOpenChatTabSignal((prev) => prev + 1);
-    setPendingBuildApplyMessage(combineMessage);
-    toast.info(`Combining ${templates.length} workflow${templates.length === 1 ? '' : 's'}...`);
-  }, []);
+  // REMOVED: Templates feature — handleCombineWorkflowsRequest, handleConfirmCombineWorkflows
 
   return (
     <>
@@ -2864,6 +2952,7 @@ ${getModificationExamples()}
       onRedo={handleRedo}
       sessionPromptIds={sessionPromptIds}
       onComfyUIWorkflowFoldersChange={setComfyuiWorkflowSubfolders}
+      onWorkflowSendToChat={handleWorkflowSendToChat}
     >
       <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       <AppHeader
@@ -2875,7 +2964,6 @@ ${getModificationExamples()}
         wsQueueRunning={comfyWS.queueRunning}
         wsQueuePending={comfyWS.queuePending}
         wsExecution={comfyWS.execution}
-        onOpenTemplateManager={handleOpenTemplateManager}
         onOpenWorkflowMerger={handleOpenWorkflowMerger}
       />
 
@@ -2906,6 +2994,9 @@ ${getModificationExamples()}
             onToggleModelCategory={modelLibrary.setCategorySelected}
             onResetModelCategories={modelLibrary.resetSelectedCategories}
             onMentionModel={handleContextMentionModel}
+            comfyuiUrl={settings.comfyuiUrl}
+            onLoadWorkflowPath={handleLoadComfyUIWorkflow}
+            onSendWorkflowToChat={handleWorkflowSendToChat}
           />
 
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
@@ -2939,6 +3030,7 @@ ${getModificationExamples()}
                 chatMode={chatMode}
                 onChatModeChange={setChatMode}
                 onSendMessage={handleSendMessage}
+                onStop={handleStopGeneration}
                 onApplyBrainstormToBuild={handleApplyBrainstormToBuild}
                 onBrainstormBuild={handleBrainstormBuild}
                 onExtractNodes={handleExtractNodes}
@@ -3107,7 +3199,6 @@ ${getModificationExamples()}
             onRequestFix={handleRequestFix}
             onImportWorkflow={handleImportWorkflow}
             onOpenNodesBrowser={handleOpenNodesBrowser}
-            onSaveAsTemplate={handleSaveCurrentAsTemplate}
             onSaveToComfyUI={handleSaveToComfyUI}
             comfyuiWorkflowSubfolders={comfyuiWorkflowSubfolders}
             isLoading={isLoading}
@@ -3127,14 +3218,7 @@ ${getModificationExamples()}
         </div>
       </div>
 
-      {/* Custom Nodes Browser modal â€” rendered at root level */}
-      {showTemplateManager && (
-        <TemplateManagerPanel
-          onLoadWorkflow={handleLoadTemplateWorkflow}
-          onClose={() => setShowTemplateManager(false)}
-          currentWorkflow={currentWorkflow}
-        />
-      )}
+      {/* Custom Nodes Browser modal — rendered at root level */}
 
       {showWorkflowMerger && (
         <MergeWizardPanel
@@ -3259,17 +3343,6 @@ ${getModificationExamples()}
       </div>
     </CommandCenter>
 
-    {showCombineDialog && combineTemplates.length >= 2 && (
-      <CombineWorkflowsDialog
-        isOpen={showCombineDialog}
-        templates={combineTemplates}
-        onClose={() => {
-          setShowCombineDialog(false);
-          setCombineTemplates([]);
-        }}
-        onConfirm={handleConfirmCombineWorkflows}
-      />
-    )}
     </>
   );
 }

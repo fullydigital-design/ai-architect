@@ -106,7 +106,6 @@ export function extractEnvironmentFromObjectInfo(objectInfo: Record<string, any>
 }
 
 export async function fetchInstalledEnvironment(comfyuiUrl = getComfyUIBaseUrl()): Promise<InstalledEnvironment> {
-  console.log('[Scanner] Fetching /object_info...');
   try {
     const baseUrl = resolveComfyUIBaseUrl(comfyuiUrl);
     const data = await getObjectInfo(baseUrl);
@@ -116,10 +115,6 @@ export async function fetchInstalledEnvironment(comfyuiUrl = getComfyUIBaseUrl()
     }
 
     const allNodeKeys = Object.keys(data);
-    console.log('[Scanner] Total top-level keys in /object_info:', allNodeKeys.length);
-    const ckptRaw = data?.CheckpointLoaderSimple?.input?.required?.ckpt_name;
-    console.log('[Scanner] CheckpointLoaderSimple raw:', JSON.stringify(ckptRaw)?.substring(0, 200));
-
     const typedData = data as Record<string, any>;
     const checkpoints = getRawDropdownValues(typedData, 'CheckpointLoaderSimple', 'ckpt_name');
     const loras = getRawDropdownValues(typedData, 'LoraLoader', 'lora_name');
@@ -131,12 +126,6 @@ export async function fetchInstalledEnvironment(comfyuiUrl = getComfyUIBaseUrl()
     const clipVision = getRawDropdownValues(typedData, 'CLIPVisionLoader', 'clip_name');
     const samplers = getRawDropdownValues(typedData, 'KSampler', 'sampler_name');
     const schedulers = getRawDropdownValues(typedData, 'KSampler', 'scheduler');
-
-    console.log('[Scanner] Checkpoints found:', checkpoints.length, checkpoints);
-    console.log('[Scanner] LoRAs found:', loras.length);
-    console.log('[Scanner] VAEs found:', vaes.length);
-    console.log('[Scanner] Samplers found:', samplers.length);
-    console.log('[Scanner] Schedulers found:', schedulers.length);
 
     const env: InstalledEnvironment = {
       checkpoints: normalizeUnique(checkpoints),
@@ -152,7 +141,6 @@ export async function fetchInstalledEnvironment(comfyuiUrl = getComfyUIBaseUrl()
       nodeTypes: allNodeKeys.sort((a, b) => a.localeCompare(b)),
       totalNodes: allNodeKeys.length,
     };
-    console.log('[Scanner] Total nodes:', env.totalNodes);
     return env;
   } catch (error) {
     console.warn('[Scanner] Failed to fetch installed environment:', error);

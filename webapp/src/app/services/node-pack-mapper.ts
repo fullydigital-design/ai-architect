@@ -211,12 +211,16 @@ async function buildMapping(apiBase: string): Promise<NodeToPackMapping> {
     }
   }
 
+  // objectInfo (from ComfyUI's /object_info) is the authoritative source for built-in nodes.
+  // The Manager's mapping data can incorrectly attribute core nodes to packs (e.g. CLIPLoader,
+  // SaveImage, VAEDecode listed under "Fooocus Inpaint Wrapper" because they were once custom
+  // and later absorbed into core). If a node is registered in objectInfo, it IS built-in —
+  // strip any false pack attribution from the mapping.
   const builtinNodes = new Set<string>();
   if (objectInfo) {
     for (const nodeClass of Object.keys(objectInfo)) {
-      if (!nodeClassToPack.has(nodeClass)) {
-        builtinNodes.add(nodeClass);
-      }
+      builtinNodes.add(nodeClass);
+      nodeClassToPack.delete(nodeClass); // objectInfo wins over manager mapping data
     }
   }
 

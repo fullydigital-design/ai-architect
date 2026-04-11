@@ -6,6 +6,7 @@ node_modules/
 dist/
 **/dist/
 webapp/.vite/
+webapp/dist-electron/
 
 # Logs and temp files
 *.log
@@ -38,6 +39,9 @@ desktop.ini
 .cursorrules
 cursor-instructions
 **/cursor-instructions
+
+# Local MCP config (machine-specific paths)
+.mcp.json
 
 # Root-level temp files
 _tmp_*

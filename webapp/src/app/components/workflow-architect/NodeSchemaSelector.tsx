@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { Suspense, lazy, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Loader2, Search } from 'lucide-react';
 import type { InstalledModels } from '@/services/comfyui-backend';
 import type { ModelPreset } from '@/hooks/useModelLibrary';
 import {
@@ -12,6 +12,10 @@ import {
 } from '@/services/node-schema-selector';
 import { formatTokenCount } from '@/services/token-estimator';
 import { ModelLibraryPanel } from './ModelLibraryPanel';
+
+const ComfyUIWorkflowFolderPanel = lazy(() =>
+  import('./ComfyUIWorkflowFolderPanel').then((mod) => ({ default: mod.ComfyUIWorkflowFolderPanel })),
+);
 
 interface NodeSchemaSelectorProps {
   state: SelectorState;
@@ -31,9 +35,12 @@ interface NodeSchemaSelectorProps {
   onToggleModelCategory?: (category: string, selected: boolean) => void;
   onResetModelCategories?: () => void;
   onMentionModel?: (filename: string, categoryLabel: string) => void;
+  comfyuiUrl?: string;
+  onLoadWorkflowPath?: (path: string) => Promise<boolean> | boolean;
+  onSendWorkflowToChat?: (workflowName: string) => void;
 }
 
-type SelectorTab = 'packs' | 'models';
+type SelectorTab = 'packs' | 'models' | 'workflows';
 
 function nextState(base: SelectorState, updater: (draft: SelectorState) => void): SelectorState {
   const draft: SelectorState = {
@@ -63,6 +70,9 @@ export function NodeSchemaSelector({
   onToggleModelCategory,
   onResetModelCategories,
   onMentionModel,
+  comfyuiUrl,
+  onLoadWorkflowPath,
+  onSendWorkflowToChat,
 }: NodeSchemaSelectorProps) {
   const [activeTab, setActiveTab] = useState<SelectorTab>('packs');
   const [expandedPacks, setExpandedPacks] = useState<Set<string>>(new Set());
@@ -187,6 +197,16 @@ export function NodeSchemaSelector({
           }`}
         >
           Models
+        </button>
+        <button
+          onClick={() => setActiveTab('workflows')}
+          className={`rounded-md border px-2.5 py-1 text-[10px] ${
+            activeTab === 'workflows'
+              ? 'border-accent/40 bg-accent-muted text-accent-text'
+              : 'border-border-default text-content-muted hover:border-border-strong hover:text-content-primary'
+          }`}
+        >
+          Workflows
         </button>
       </div>
 
@@ -371,6 +391,23 @@ export function NodeSchemaSelector({
             onMentionModel={onMentionModel}
             layout={isPanel ? 'panel' : 'dropdown'}
           />
+        </div>
+      )}
+
+      {activeTab === 'workflows' && (
+        <div className={isPanel ? 'min-h-0 flex-1 overflow-hidden' : 'max-h-64 overflow-hidden'}>
+          <Suspense fallback={
+            <div className="flex items-center justify-center gap-2 py-8 text-xs text-content-faint">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading…
+            </div>
+          }>
+            <ComfyUIWorkflowFolderPanel
+              comfyuiUrl={comfyuiUrl}
+              onLoadWorkflowPath={onLoadWorkflowPath}
+              onSendToChat={onSendWorkflowToChat}
+            />
+          </Suspense>
         </div>
       )}
     </div>
