@@ -11,6 +11,7 @@
  */
 import { getObjectInfo, invalidateObjectInfoCache } from '../../services/comfyui-object-info-cache';
 import { getComfyUIBaseUrl, resolveComfyUIBaseUrl } from '../../services/api-config';
+import { getCachedComfyUIAvailability, setComfyUIAvailability } from '../../services/comfyui-availability';
 import { logger } from '@/utils/logger';
 
 export interface ManagerNode {
@@ -513,6 +514,19 @@ async function managerFetch(
     ...init,
     headers,
   };
+
+  // Short-circuit when ComfyUI is known offline so we don't spam the proxy.
+  const baseMatch = url.match(/^(https?:\/\/[^/]+|\/[^/]+)/);
+  const base = baseMatch ? baseMatch[0] : '';
+  if (base) {
+    const cached = getCachedComfyUIAvailability(base);
+    if (cached === false) {
+      logger.debug(`[Manager API] Skipping ${method} ${url} — ComfyUI cached offline`);
+      const response = new Response(null, { status: 503, statusText: 'ComfyUI offline (cached)' });
+      return { response, errorBody: '' };
+    }
+  }
+
   logger.log(`[Manager API] ${method} ${url}`);
 
   try {
@@ -520,6 +534,7 @@ async function managerFetch(
     if (!response.ok) {
       const body = await safeReadText(response);
       const preview = formatBodyPreview(body);
+      if (response.status >= 500 && base) setComfyUIAvailability(base, false);
       if (silentStatuses.includes(response.status)) {
         logger.log(`[Manager API] ${method} ${url} -> ${response.status}`);
       } else {
@@ -617,12 +632,14 @@ async function detectManager(comfyuiUrl: string): Promise<boolean> {
         10000,
       );
 
-      // 200 = healthy Manager endpoint; 500 = endpoint exists but failed server-side.
-      // 404 means the route is missing (Manager likely not installed for that endpoint).
-      if (response.status !== 404) {
+      // Only treat 2xx as "Manager present". 5xx commonly means the dev-server
+      // proxy is forwarding to an offline ComfyUI; 404 means the route isn't
+      // installed. Either way, don't claim the Manager is available.
+      if (response.ok) {
         logger.log(`[Manager Detection] FOUND via ${url} (status: ${response.status})`);
         return true;
       }
+      logger.debug(`[Manager Detection] ${url} -> HTTP ${response.status} (not treated as found)`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.log(`[Manager Detection] ${url} -> network error (${message})`);

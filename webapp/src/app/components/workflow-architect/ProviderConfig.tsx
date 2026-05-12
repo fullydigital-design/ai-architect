@@ -52,7 +52,7 @@ import {
   type CustomNodePackInfo,
 } from '../../../data/custom-node-registry';
 import { fetchOpenRouterModels, getCachedOpenRouterModels } from '../../services/openrouter-service';
-import { fetchLMStudioModels, type LMStudioModelInfo } from '../../../services/lmstudio-service';
+import { fetchLMStudioModels, loadLMStudioModel, type LMStudioModelInfo } from '../../../services/lmstudio-service';
 import { toast } from 'sonner';
 
 // ── ComfyUI Backend Connection Sub-Panel ─────────────────────────────────────
@@ -449,6 +449,7 @@ export function ProviderConfig({
   const [lmstudioModels, setLmstudioModels] = useState<LMStudioModelInfo[]>([]);
   const [lmstudioError, setLmstudioError] = useState<string | null>(null);
   const [lmstudioProbedAt, setLmstudioProbedAt] = useState<number | null>(null);
+  const [lmstudioLoadingKey, setLmstudioLoadingKey] = useState<string | null>(null);
 
   useEffect(() => {
     const openrouterKey = settings.keys.openrouter?.trim();
@@ -578,7 +579,7 @@ export function ProviderConfig({
     }
   };
 
-  const useLMStudioModel = (model: LMStudioModelInfo) => {
+  const selectLMStudioModel = (model: LMStudioModelInfo) => {
     const existing = settings.customModels.find((m) => m.id === model.id);
     const nextCustomModels = existing
       ? settings.customModels
@@ -596,7 +597,32 @@ export function ProviderConfig({
       customModels: nextCustomModels,
       selectedModel: model.id,
     });
-    toast.success(`Selected ${model.displayName || model.id} via LM Studio.`);
+  };
+
+  const loadAndUseLMStudioModel = async (model: LMStudioModelInfo) => {
+    setLmstudioLoadingKey(model.catalogKey);
+    setLmstudioError(null);
+    try {
+      const result = await loadLMStudioModel(settings.keys.lmstudio, model.catalogKey);
+      // Re-probe to refresh load state (and pick up the instance id for chat completions).
+      const probe = await fetchLMStudioModels(settings.keys.lmstudio);
+      setLmstudioModels(probe.models);
+      setLmstudioProbedAt(Date.now());
+      // Prefer the freshly-loaded entry by catalog key — its `id` is now the instance id.
+      const fresh = probe.models.find((m) => m.catalogKey === model.catalogKey && m.loaded);
+      if (fresh) {
+        selectLMStudioModel(fresh);
+        toast.success(`Loaded ${fresh.displayName || fresh.id} in ${result.loadTimeSeconds?.toFixed(1) ?? '?'}s`);
+      } else {
+        toast.success(`Loaded ${result.instanceId}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'LM Studio load failed';
+      setLmstudioError(message);
+      toast.error(message);
+    } finally {
+      setLmstudioLoadingKey(null);
+    }
   };
 
   // All default + custom for the grouped display in My Models
@@ -847,12 +873,31 @@ export function ProviderConfig({
                           </div>
                         )}
                         {lmstudioModels.map((model) => {
-                          const isSelected = settings.selectedModel === model.id;
+                          const isSelectedInApp = settings.selectedModel === model.id
+                            || settings.selectedModel === model.catalogKey;
                           const isLoaded = model.loaded;
+                          const isInUse = isSelectedInApp && isLoaded;
+                          const isLoadingThis = lmstudioLoadingKey === model.catalogKey;
+                          const isLoadingOther = lmstudioLoadingKey !== null && !isLoadingThis;
                           const displayName = model.displayName || model.id;
+                          let buttonLabel: string;
+                          if (isLoadingThis) buttonLabel = 'Loading…';
+                          else if (isInUse) buttonLabel = 'In use';
+                          else if (isLoaded) buttonLabel = 'Use';
+                          else buttonLabel = isSelectedInApp ? 'Load again' : 'Load & use';
+                          const buttonAction = () => {
+                            if (isInUse || isLoadingThis || isLoadingOther) return;
+                            if (isLoaded) selectLMStudioModel(model);
+                            else void loadAndUseLMStudioModel(model);
+                          };
+                          const buttonClass = isInUse
+                            ? 'bg-state-success-muted text-state-success border border-state-success/20'
+                            : isLoaded
+                              ? 'bg-accent hover:bg-accent-hover text-accent-contrast'
+                              : 'bg-state-info-muted hover:bg-state-info-muted/80 text-state-info border border-state-info/20';
                           return (
                             <div
-                              key={model.id}
+                              key={model.catalogKey}
                               className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded border ${
                                 isLoaded
                                   ? 'bg-surface-inset border-state-success/20'
@@ -881,17 +926,14 @@ export function ProviderConfig({
                               </div>
                               <button
                                 type="button"
-                                onClick={() => useLMStudioModel(model)}
-                                disabled={!isLoaded || isSelected}
-                                className={`shrink-0 px-2 py-1 rounded text-[10px] transition-colors ${
-                                  isSelected
-                                    ? 'bg-state-success-muted text-state-success border border-state-success/20'
-                                    : isLoaded
-                                      ? 'bg-accent hover:bg-accent-hover text-accent-contrast'
-                                      : 'bg-surface-2 text-content-muted cursor-not-allowed'
+                                onClick={buttonAction}
+                                disabled={isInUse || isLoadingThis || isLoadingOther}
+                                className={`shrink-0 px-2 py-1 rounded text-[10px] transition-colors inline-flex items-center gap-1 ${buttonClass} ${
+                                  (isLoadingThis || isLoadingOther) ? 'opacity-60 cursor-wait' : ''
                                 }`}
                               >
-                                {isSelected ? 'In use' : isLoaded ? 'Use' : 'Not loaded'}
+                                {isLoadingThis && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                                {buttonLabel}
                               </button>
                             </div>
                           );

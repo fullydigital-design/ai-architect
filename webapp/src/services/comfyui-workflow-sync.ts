@@ -1,4 +1,5 @@
 import { detectMixedContent, resolveComfyUrl } from './comfyui-backend';
+import { ensureComfyUIAvailable, setComfyUIAvailability } from './comfyui-availability';
 import { logger } from '@/utils/logger';
 
 export interface ComfyUIWorkflowFile {
@@ -36,6 +37,9 @@ export async function listComfyUIWorkflows(baseUrl: string): Promise<ComfyUIWork
     throw new Error('HTTPS to HTTP ComfyUI requests are blocked by browser mixed-content policy.');
   }
 
+  const reachable = await ensureComfyUIAvailable(normalized);
+  if (!reachable) return [];
+
   const response = await fetch(
     `${normalized}/api/userdata?dir=workflows&recurse=true&split=false`,
     { signal: AbortSignal.timeout(10_000) },
@@ -46,6 +50,7 @@ export async function listComfyUIWorkflows(baseUrl: string): Promise<ComfyUIWork
       logger.warn('[ComfyUIWorkflowSync] Userdata workflow API not available (ComfyUI too old?)');
       return [];
     }
+    if (response.status >= 500) setComfyUIAvailability(normalized, false);
     throw new Error(`Failed to list workflows: HTTP ${response.status}`);
   }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { resolveComfyUIBaseUrl } from '../services/api-config';
+import { setComfyUIAvailability } from '../services/comfyui-availability';
 import {
   subscribeComfyUIStatus,
   type ComfyUIStatusEvent,
@@ -85,18 +86,20 @@ export function useComfyUIStatus({
         signal: AbortSignal.timeout(4000),
       });
 
-      setSnapshot((prev) => {
-        const recovered = prev.phase === 'offline' || prev.phase === 'restarting';
-        return {
-          ...prev,
-          phase: 'online',
-          message: 'ComfyUI is online',
-          lastUpdated: Date.now(),
-          recoveryCount: recovered ? prev.recoveryCount + 1 : prev.recoveryCount,
-        };
-      });
-
-      if (!response.ok) {
+      if (response.ok) {
+        setComfyUIAvailability(baseUrl, true);
+        setSnapshot((prev) => {
+          const recovered = prev.phase === 'offline' || prev.phase === 'restarting';
+          return {
+            ...prev,
+            phase: 'online',
+            message: 'ComfyUI is online',
+            lastUpdated: Date.now(),
+            recoveryCount: recovered ? prev.recoveryCount + 1 : prev.recoveryCount,
+          };
+        });
+      } else {
+        setComfyUIAvailability(baseUrl, false);
         setSnapshot((prev) => ({
           ...prev,
           phase: 'offline',
@@ -105,6 +108,7 @@ export function useComfyUIStatus({
         }));
       }
     } catch {
+      setComfyUIAvailability(baseUrl, false);
       setSnapshot((prev) => ({
         ...prev,
         phase: prev.phase === 'restarting' || prev.phase === 'installing' ? prev.phase : 'offline',

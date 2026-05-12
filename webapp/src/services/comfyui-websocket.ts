@@ -16,6 +16,7 @@
  *   { type: "execution_cached", data: { nodes: ["id1","id2"], prompt_id: "..." } }
  */
 import { getComfyUIWebSocketUrl } from './api-config';
+import { getCachedComfyUIAvailability } from './comfyui-availability';
 import { logger } from '@/utils/logger';
 
 export type ComfyWSMessageType =
@@ -142,7 +143,21 @@ export class ComfyUIWebSocket {
     this.reconnectAttempts++;
     const exponent = Math.min(this.reconnectAttempts - 1, 5);
     const delay = Math.min(this.baseReconnectDelayMs * (2 ** exponent), this.maxReconnectDelayMs);
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    this.reconnectTimer = setTimeout(() => this.attemptReconnect(), delay);
+  }
+
+  private async attemptReconnect(): Promise<void> {
+    if (this.intentionallyClosed) return;
+    // If ComfyUI is cached as offline, defer the actual WebSocket attempt and
+    // re-schedule. This avoids the noisy "WebSocket connection failed" spam
+    // in DevTools while ComfyUI is down.
+    const httpBase = this.url.replace(/^ws/, 'http');
+    const cached = getCachedComfyUIAvailability(httpBase);
+    if (cached === false) {
+      this.scheduleReconnect();
+      return;
+    }
+    this.connect();
   }
 
   private handleMessage(msg: ComfyWSMessage): void {

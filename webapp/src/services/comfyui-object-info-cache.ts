@@ -1,4 +1,5 @@
 import { resolveComfyUIBaseUrl } from './api-config';
+import { ensureComfyUIAvailable, setComfyUIAvailability } from './comfyui-availability';
 import { logger } from '@/utils/logger';
 
 let cachedResponse: Record<string, any> | null = null;
@@ -33,16 +34,21 @@ export async function getObjectInfo(
   }
 
   pendingBaseUrl = baseUrl;
-  logger.log('[Scanner] Fetching /object_info...');
-  pendingRequest = fetch(`${baseUrl}/object_info`, {
-    signal: AbortSignal.timeout(30000),
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`Failed to fetch object_info: ${response.status}`);
-      }
-      return await response.json() as Record<string, any>;
-    })
+  pendingRequest = (async () => {
+    const reachable = await ensureComfyUIAvailable(baseUrl);
+    if (!reachable) {
+      throw new Error('ComfyUI is offline');
+    }
+    logger.log('[Scanner] Fetching /object_info...');
+    const response = await fetch(`${baseUrl}/object_info`, {
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) {
+      if (response.status >= 500) setComfyUIAvailability(baseUrl, false);
+      throw new Error(`Failed to fetch object_info: ${response.status}`);
+    }
+    return (await response.json()) as Record<string, any>;
+  })()
     .then((data) => {
       cachedResponse = data;
       cachedBaseUrl = baseUrl;

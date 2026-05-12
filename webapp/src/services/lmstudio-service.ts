@@ -3,6 +3,8 @@ import { logger } from '@/utils/logger';
 export interface LMStudioModelInfo {
   /** Model identifier to send in chat completion requests. */
   id: string;
+  /** Catalog key — stable across load/unload cycles. Used for POST /load. */
+  catalogKey: string;
   /** Human-readable name, if reported. */
   displayName?: string;
   /** Loaded into VRAM right now (has at least one running instance). */
@@ -79,7 +81,7 @@ function parseRestApiResponse(payload: unknown): LMStudioModelInfo[] {
       const instanceId = firstInstance && typeof firstInstance.id === 'string' ? firstInstance.id : '';
       const key = typeof r.key === 'string' ? r.key : '';
       const id = instanceId || key;
-      if (!id) return null;
+      if (!id || !key) return null;
 
       const quant = r.quantization && typeof r.quantization === 'object'
         ? (r.quantization as Record<string, unknown>)
@@ -97,6 +99,7 @@ function parseRestApiResponse(payload: unknown): LMStudioModelInfo[] {
 
       return {
         id,
+        catalogKey: key,
         displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
         loaded: instances.length > 0,
         contextLength: typeof instanceCtx === 'number' ? instanceCtx : maxCtx,
@@ -126,7 +129,7 @@ function parseOpenAIResponse(payload: unknown): LMStudioModelInfo[] {
       const id = typeof r.id === 'string' ? r.id : '';
       if (!id) return null;
       // Without REST API, assume loaded — LM Studio's /v1/models only lists the active model on 0.3.x.
-      return { id, loaded: true };
+      return { id, catalogKey: id, loaded: true };
     })
     .filter((m): m is LMStudioModelInfo => m !== null);
 }
@@ -173,4 +176,43 @@ export async function fetchLMStudioModels(baseUrl: string | undefined): Promise<
 /** Convenience: return only the model IDs that are currently loaded. */
 export function loadedModelIds(probe: LMStudioProbeResult): string[] {
   return probe.models.filter((m) => m.loaded).map((m) => m.id);
+}
+
+const LOAD_TIMEOUT_MS = 120_000;
+
+/**
+ * Ask LM Studio to load a model into VRAM via POST /api/v1/models/load.
+ * Resolves once LM Studio confirms the load. Throws on any non-OK response.
+ *
+ * The model key here is the catalog key returned in /api/v1/models[].key
+ * (e.g. "qwen/qwen3-coder-30b"), NOT the per-instance id (which is only
+ * known after the load completes).
+ */
+export async function loadLMStudioModel(
+  baseUrl: string | undefined,
+  modelKey: string,
+): Promise<{ instanceId: string; loadTimeSeconds?: number }> {
+  const host = normalizeHost(baseUrl);
+  const res = await fetch(`${host}/api/v1/models/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelKey }),
+    signal: AbortSignal.timeout(LOAD_TIMEOUT_MS),
+  });
+
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = await res.text();
+    } catch {
+      // ignore
+    }
+    throw new Error(`LM Studio load failed (${res.status}): ${detail.slice(0, 200) || res.statusText}`);
+  }
+
+  const json = (await res.json()) as Record<string, unknown>;
+  const instanceId = typeof json.instance_id === 'string' ? json.instance_id : modelKey;
+  const loadTimeSeconds = typeof json.load_time_seconds === 'number' ? json.load_time_seconds : undefined;
+  logger.log(`[LMStudio] Loaded ${instanceId} in ${loadTimeSeconds ?? '?'}s`);
+  return { instanceId, loadTimeSeconds };
 }
