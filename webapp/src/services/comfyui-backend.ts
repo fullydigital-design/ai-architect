@@ -686,6 +686,33 @@ export function getCacheStatus(): { exists: boolean; nodeCount: number; ageMinut
   };
 }
 
+/**
+ * Ask ComfyUI to unload the active model + free GPU memory. Used by the VRAM
+ * coordinator when handing the GPU over to a local LLM. ComfyUI's `/free`
+ * endpoint returns 200 with an empty body; failure is soft (logged, not
+ * thrown) so a hand-off attempt never crashes the foreground action.
+ */
+export async function freeComfyUIVRAM(baseUrl: string): Promise<boolean> {
+  const url = resolveComfyUrl(baseUrl).replace(/\/$/, '');
+  try {
+    const res = await fetch(`${url}/free`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unload_models: true, free_memory: true }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      logger.warn(`[ComfyUI] /free returned ${res.status}`);
+      return false;
+    }
+    logger.log('[ComfyUI] VRAM freed');
+    return true;
+  } catch (err) {
+    logger.warn('[ComfyUI] /free failed:', err);
+    return false;
+  }
+}
+
 // ── Prompt Builders ──────────────────────────────────────────────────────────
 
 /**

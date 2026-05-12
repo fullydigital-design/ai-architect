@@ -179,6 +179,58 @@ export function loadedModelIds(probe: LMStudioProbeResult): string[] {
 }
 
 const LOAD_TIMEOUT_MS = 120_000;
+const UNLOAD_TIMEOUT_MS = 10_000;
+
+/**
+ * Unload a specific running instance from LM Studio (frees VRAM).
+ *
+ * Uses POST /api/v1/models/unload with { instance_id }. The id comes from
+ * /api/v1/models[].loaded_instances[].id — for typical installs this equals
+ * the catalog key (e.g. "qwen/qwen3.6-35b-a3b").
+ */
+export async function unloadLMStudioModel(
+  baseUrl: string | undefined,
+  instanceId: string,
+): Promise<void> {
+  const host = normalizeHost(baseUrl);
+  const res = await fetch(`${host}/api/v1/models/unload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instance_id: instanceId }),
+    signal: AbortSignal.timeout(UNLOAD_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = await res.text(); } catch { /* ignore */ }
+    throw new Error(`LM Studio unload failed (${res.status}): ${detail.slice(0, 200) || res.statusText}`);
+  }
+  logger.log(`[LMStudio] Unloaded ${instanceId}`);
+}
+
+/**
+ * Unload every running instance currently in LM Studio. No-op if nothing
+ * is loaded or LM Studio is unreachable.
+ */
+export async function unloadAllLMStudioModels(baseUrl: string | undefined): Promise<string[]> {
+  let probe: LMStudioProbeResult;
+  try {
+    probe = await fetchLMStudioModels(baseUrl);
+  } catch (err) {
+    logger.debug('[LMStudio] Unload-all skipped — probe failed:', err);
+    return [];
+  }
+  const ids: string[] = [];
+  for (const model of probe.models) {
+    if (!model.loaded) continue;
+    try {
+      await unloadLMStudioModel(baseUrl, model.id);
+      ids.push(model.id);
+    } catch (err) {
+      logger.warn(`[LMStudio] Could not unload ${model.id}:`, err);
+    }
+  }
+  return ids;
+}
 
 /**
  * Ask LM Studio to load a model into VRAM via POST /api/v1/models/load.

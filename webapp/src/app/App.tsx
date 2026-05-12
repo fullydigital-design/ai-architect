@@ -43,6 +43,7 @@ import {
   describeCascade,
   logCascadeResolution,
 } from '../services/schema-cascade';
+import { claimForAI, claimForComfyUI, markVRAMIdle } from '../services/vram-coordinator';
 import {
   buildNodeExtractionPrompt,
   parseRecommendedNodes,
@@ -1491,6 +1492,11 @@ ${getModificationExamples()}
     setIsLoading(true);
     setStreamingContent('');
 
+    // VRAM hand-off: free ComfyUI + ensure the LM Studio model is loaded
+    // (cloud providers short-circuit inside this call). Best-effort, never
+    // throws — if it fails the AI call still runs.
+    await claimForAI(settings);
+
     const selectedNodesForMessage = chatMode === 'build' && currentWorkflow
       ? currentWorkflow.nodes.filter((node) => selectedNodeIds.has(String(node.id)))
       : [];
@@ -2728,6 +2734,11 @@ ${getModificationExamples()}
     setLastExecutedWorkflowRef(null);
     setExecutionProgress({ status: 'queued', completedNodes: [] });
 
+    // VRAM hand-off: kick LM Studio off the GPU before ComfyUI starts loading
+    // its checkpoint. Fire-and-forget — the queue submission proceeds in
+    // parallel; ComfyUI's loader will see the freed VRAM by the time it runs.
+    void claimForComfyUI(settings);
+
     const { promise, cancel } = executeWorkflow(
       settings.comfyuiUrl,
       workflowToExecute,
@@ -2740,6 +2751,7 @@ ${getModificationExamples()}
 
     promise
       .then((result) => {
+        markVRAMIdle();
         setExecutionResult(result);
         setLastExecutedWorkflowRef(result.success ? workflowToExecute : null);
         setExecutionProgress(null);

@@ -53,6 +53,7 @@ import {
 } from '../../../data/custom-node-registry';
 import { fetchOpenRouterModels, getCachedOpenRouterModels } from '../../services/openrouter-service';
 import { fetchLMStudioModels, loadLMStudioModel, type LMStudioModelInfo } from '../../../services/lmstudio-service';
+import { isCoordinatorEnabled, setCoordinatorEnabled } from '../../../services/vram-coordinator';
 import { toast } from 'sonner';
 
 // ── ComfyUI Backend Connection Sub-Panel ─────────────────────────────────────
@@ -450,6 +451,7 @@ export function ProviderConfig({
   const [lmstudioError, setLmstudioError] = useState<string | null>(null);
   const [lmstudioProbedAt, setLmstudioProbedAt] = useState<number | null>(null);
   const [lmstudioLoadingKey, setLmstudioLoadingKey] = useState<string | null>(null);
+  const [vramCoordinatorOn, setVramCoordinatorOn] = useState(() => isCoordinatorEnabled());
 
   useEffect(() => {
     const openrouterKey = settings.keys.openrouter?.trim();
@@ -944,6 +946,26 @@ export function ProviderConfig({
                           </div>
                         )}
                       </div>
+                    )}
+                    {isLocal && (
+                      <label className="mt-1.5 flex items-start gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={vramCoordinatorOn}
+                          onChange={(e) => {
+                            setVramCoordinatorOn(e.target.checked);
+                            setCoordinatorEnabled(e.target.checked);
+                          }}
+                          className="mt-0.5 shrink-0 accent-accent"
+                        />
+                        <span className="text-[10px] leading-tight text-content-secondary">
+                          <span className="text-content-primary">Auto-manage GPU memory</span>
+                          <br />
+                          <span className="text-content-muted">
+                            Unload ComfyUI before chat, unload LM Studio before image generation. Required on a single-GPU setup to avoid OOM.
+                          </span>
+                        </span>
+                      </label>
                     )}
                   </div>
                 );
