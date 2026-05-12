@@ -36,6 +36,14 @@ import { ALL_NODES } from '../data/node-registry';
 import { buildModelLibraryPrompt, buildSystemPromptWithPacks } from '../data/system-prompt';
 import { buildBrainstormSystemPrompt } from '../data/brainstorm-system-prompt';
 import {
+  parseSchemaCascadeRequest,
+  resolveLiveSchemas,
+  buildSchemaCascadeReply,
+  stripSchemaCascadeMarker,
+  describeCascade,
+  logCascadeResolution,
+} from '../services/schema-cascade';
+import {
   buildNodeExtractionPrompt,
   parseRecommendedNodes,
   stripRecommendationBlock,
@@ -1030,7 +1038,7 @@ export default function App() {
         selectedNodeMap: {} as Record<string, any>,
         selectedNodeCount: 0,
         loadedPackTitles: [] as string[],
-        liveSchemaMode: 'compact' as 'compact' | 'full',
+        liveSchemaMode: 'compact' as 'compact' | 'full' | 'names',
       };
     }
 
@@ -1049,7 +1057,12 @@ export default function App() {
       }
     }
 
-    let liveSchemaMode: 'compact' | 'full' = schemaSelectorState.mode === 'full' ? 'full' : 'compact';
+    let liveSchemaMode: 'compact' | 'full' | 'names' =
+      schemaSelectorState.mode === 'full'
+        ? 'full'
+        : schemaSelectorState.mode === 'names'
+          ? 'names'
+          : 'compact';
     let section = buildSchemaDrawerSection(selectedNodeMap, {
       mode: liveSchemaMode,
       nodeToPackTitle,
@@ -1058,6 +1071,7 @@ export default function App() {
     // === Token budget enforcement (3 tiers) ===
     // Goal: keep schema injection under SCHEMA_TOKEN_HARD_CAP tokens per request.
     // Selector state is never mutated — these are prompt-time adaptations only.
+    // 'names' mode is already cheap by definition, so it skips the budget tiers.
 
     // Tier 1: full → compact
     if (liveSchemaMode === 'full' && Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
@@ -1073,7 +1087,7 @@ export default function App() {
     }
 
     // Tier 2: compact but too many nodes → drop core ComfyUI packs (AI knows them intrinsically)
-    if (Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
+    if (liveSchemaMode !== 'names' && Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
       const coreTitles = new Set(selectorClassifiedPacks.filter((p) => p.isCore).map((p) => p.title));
       const customOnly: typeof selectedNodeMap = Object.fromEntries(
         Object.entries(selectedNodeMap).filter(([nodeName]) => {
@@ -1092,7 +1106,7 @@ export default function App() {
     }
 
     // Tier 3: still over cap → skip entirely with a brief notice
-    if (Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
+    if (liveSchemaMode !== 'names' && Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
       logger.warn(
         `[SchemaDrawer] Tier 3: skipping schema injection (${Object.keys(selectedNodeMap).length} nodes still too large)`,
       );
@@ -1151,7 +1165,7 @@ export default function App() {
       modelLibraryPromptSection,
       hasSelectedNodes,
       null,
-      schemaContext.liveSchemaMode,
+      schemaContext.liveSchemaMode === 'full' ? 'full' : 'compact',
       userMessage,
       useLibraryReferences,
     );
@@ -1209,7 +1223,7 @@ export default function App() {
       modelLibraryPromptSection,
       hasSelectedNodes,
       null,
-      schemaContext.liveSchemaMode,
+      schemaContext.liveSchemaMode === 'full' ? 'full' : 'compact',
       userMessage,
       useLibraryReferences,
     );
@@ -1293,11 +1307,25 @@ ${getModificationExamples()}
       ? formatAnalysisSummary(currentAnalysis, 'Current workflow')
       : (currentWorkflow ? summarizeWorkflow(currentWorkflow).text : undefined);
     const includeRecommendationFormat = availabilitySection.trim().length > 0;
+    const currentWorkflowNodeCount = currentWorkflow?.nodes?.length ?? 0;
+    const currentStateNote = liveCache
+      ? [
+          `- Selected node schemas available to you: **${schemaContext.selectedNodeCount}** node${schemaContext.selectedNodeCount === 1 ? '' : 's'} (mode: ${schemaContext.liveSchemaMode}).`,
+          `- Selected packs: ${schemaContext.loadedPackTitles.length > 0 ? schemaContext.loadedPackTitles.join(', ') : 'ComfyUI Core only'}.`,
+          `- Current workflow in canvas: ${currentWorkflowNodeCount > 0 ? `${currentWorkflowNodeCount} nodes loaded` : 'empty'}.`,
+        ].join('\n')
+      : '';
     return buildBrainstormSystemPrompt(
       `${packsSection}${installedPackSection}`,
       fullModelLibraryPromptSection || modelLibraryPromptSection,
       workflowSummary,
-      { includeRecommendationFormat },
+      {
+        includeRecommendationFormat,
+        schemaMode: schemaContext.liveSchemaMode === 'full' || schemaContext.liveSchemaMode === 'compact' || schemaContext.liveSchemaMode === 'names'
+          ? schemaContext.liveSchemaMode
+          : schemaSelectorState.mode,
+        currentStateNote,
+      },
     );
   }, [
     effectivePromptPacks,
@@ -1529,7 +1557,7 @@ ${getModificationExamples()}
         let fullResponse = '';
         const abortController = new AbortController();
         aiAbortControllerRef.current = abortController;
-        const response = await callAI({
+        let response = await callAI({
           settings,
           messages: conversationHistory,
           onChunk: (chunk) => {
@@ -1539,9 +1567,48 @@ ${getModificationExamples()}
           systemPromptOverride,
           signal: abortController.signal,
         });
-        const finalResponse = fullResponse || response.text;
+        let finalResponse = fullResponse || response.text;
+        let cascadeInputChars = 0;
+        let cascadeOutputChars = 0;
+
+        // Schema-cascade loop: if the assistant requested full schemas via a
+        // <NEED_SCHEMAS> marker, resolve them and re-call once with the result
+        // appended as a synthetic user message. Single round to keep latency
+        // and tokens bounded.
+        const cascadeRequest = parseSchemaCascadeRequest(finalResponse);
+        if (cascadeRequest) {
+          const resolved = resolveLiveSchemas(cascadeRequest.requested);
+          logCascadeResolution(resolved);
+          const cascadeReply = buildSchemaCascadeReply(resolved);
+          const assistantTurn = stripSchemaCascadeMarker(finalResponse);
+          const cascadeHistory = [
+            ...conversationHistory,
+            { role: 'assistant' as const, content: assistantTurn || cascadeRequest.rawBlock },
+            { role: 'user' as const, content: cascadeReply },
+          ];
+          // Reset the streaming buffer so only the final, post-cascade answer
+          // ends up in the user-visible message.
+          fullResponse = '';
+          setStreamingContent('');
+          response = await callAI({
+            settings,
+            messages: cascadeHistory,
+            onChunk: (chunk) => {
+              fullResponse += chunk;
+              setStreamingContent((prev) => prev + chunk);
+            },
+            systemPromptOverride,
+            signal: abortController.signal,
+          });
+          finalResponse = fullResponse || response.text;
+          cascadeInputChars = cascadeReply.length + assistantTurn.length;
+          cascadeOutputChars = finalResponse.length;
+          logger.log(`[Cascade] ${describeCascade(resolved)} (round 2 reply: ${cascadeOutputChars} chars)`);
+        }
+
         const inputChars = (systemPromptOverride?.length ?? 0)
-          + conversationHistory.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
+          + conversationHistory.reduce((sum, message) => sum + (message.content?.length ?? 0), 0)
+          + cascadeInputChars;
         trackTokenUsage(
           settings.selectedModel,
           response.usage,
@@ -1549,7 +1616,7 @@ ${getModificationExamples()}
           finalResponse.length,
         );
         const parsedRecommendation = parseRecommendedNodes(finalResponse);
-        const displayText = stripRecommendationBlock(finalResponse);
+        const displayText = stripRecommendationBlock(stripSchemaCascadeMarker(finalResponse));
         const liveNodeMap = new Map<string, unknown>(
           Object.keys(getLiveNodeCache()?.nodes || {}).map((classType) => [classType, true]),
         );

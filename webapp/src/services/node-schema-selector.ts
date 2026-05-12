@@ -9,7 +9,7 @@ import {
 import type { CustomNodePackInfo } from '../data/custom-node-registry';
 import { logger } from '@/utils/logger';
 
-export type SchemaMode = 'full' | 'compact' | 'off';
+export type SchemaMode = 'full' | 'compact' | 'names' | 'off';
 
 export interface SelectorState {
   version: 2;
@@ -60,7 +60,7 @@ function sanitizeSelectorState(raw: unknown): SelectorState {
     packs?: Record<string, { enabled?: boolean; selectedNodes?: string[] | null }>;
     lastUpdated?: number;
   };
-  const mode: SchemaMode = parsed.mode === 'full' || parsed.mode === 'compact' || parsed.mode === 'off'
+  const mode: SchemaMode = parsed.mode === 'full' || parsed.mode === 'compact' || parsed.mode === 'names' || parsed.mode === 'off'
     ? parsed.mode
     : 'compact';
   const packs: SelectorState['packs'] = {};

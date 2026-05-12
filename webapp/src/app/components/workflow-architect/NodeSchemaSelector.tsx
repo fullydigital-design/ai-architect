@@ -220,10 +220,19 @@ export function NodeSchemaSelector({
               </div>
             </div>
             <div className="flex gap-1.5">
-              {(['full', 'compact', 'off'] as SchemaMode[]).map((mode) => (
+              {(['full', 'compact', 'names', 'off'] as SchemaMode[]).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setMode(mode)}
+                  title={
+                    mode === 'names'
+                      ? 'Names-only: cheapest. AI sees just node names and requests full schemas on demand.'
+                      : mode === 'compact'
+                        ? 'Compact: one-line schemas per node.'
+                        : mode === 'full'
+                          ? 'Full: complete schemas with all inputs/outputs/widgets.'
+                          : 'Off: no schemas injected.'
+                  }
                   className={`rounded border px-2 py-1 text-[10px] capitalize ${
                     state.mode === mode
                       ? 'border-accent/40 bg-accent text-accent-contrast'

@@ -909,7 +909,7 @@ function detectInstalledCustomPacksFromLiveCache(cache: LiveNodeCache): string[]
 interface NodeAvailabilitySummaryOptions {
   loadedPackTitles?: string[];
   loadedNodeCount?: number;
-  schemaMode?: 'full' | 'compact' | 'off';
+  schemaMode?: 'full' | 'compact' | 'names' | 'off';
 }
 
 /**
@@ -963,7 +963,7 @@ export function buildNodeAvailabilitySummary(options: NodeAvailabilitySummaryOpt
 }
 
 interface SchemaDrawerSectionOptions {
-  mode: 'full' | 'compact' | 'off';
+  mode: 'full' | 'compact' | 'names' | 'off';
   nodeToPackTitle?: Map<string, string> | Record<string, string>;
   log?: boolean;
 }
@@ -979,7 +979,7 @@ function resolvePackTitleForNode(
   return mapping[classType] || 'ComfyUI Core / Other';
 }
 
-function formatLiveNodeForPromptFull(schema: LiveNodeSchema): string {
+export function formatLiveNodeForPromptFull(schema: LiveNodeSchema): string {
   const lines: string[] = [];
   let header = `### ${schema.class_type}`;
   if (schema.display_name && schema.display_name !== schema.class_type) {
@@ -1057,18 +1057,32 @@ export function buildSchemaDrawerSection(
   }
 
   const sortedGroups = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  let section = '\n## Live Node Schemas (Schema Drawer Selection)\n\n';
-  section += 'These are exact schemas from /object_info. Use them for precise inputs, outputs, widgets, and valid values.\n\n';
-
+  let section: string;
   let totalNodes = 0;
-  for (const [packTitle, schemas] of sortedGroups) {
-    const sortedSchemas = [...schemas].sort((a, b) => a.class_type.localeCompare(b.class_type));
-    section += `### ${packTitle} (${sortedSchemas.length} nodes)\n\n`;
-    for (const schema of sortedSchemas) {
-      section += options.mode === 'full'
-        ? formatLiveNodeForPromptFull(schema)
-        : formatLiveNodeForPrompt(schema);
-      totalNodes += 1;
+
+  if (options.mode === 'names') {
+    // Names-only mode: list class_types per pack, no schema details. The
+    // assistant fetches full schemas on demand via the cascade marker.
+    section = '\n## Live Node Schemas (names only)\n\n';
+    section += 'These are the **names** of the currently-selected installed nodes. Full inputs/outputs/widgets are NOT included here — request them with the schema cascade when you need them.\n\n';
+    for (const [packTitle, schemas] of sortedGroups) {
+      const sortedSchemas = [...schemas].sort((a, b) => a.class_type.localeCompare(b.class_type));
+      const names = sortedSchemas.map((s) => s.class_type).join(', ');
+      section += `### ${packTitle} (${sortedSchemas.length})\n${names}\n\n`;
+      totalNodes += sortedSchemas.length;
+    }
+  } else {
+    section = '\n## Live Node Schemas (Schema Drawer Selection)\n\n';
+    section += 'These are exact schemas from /object_info. Use them for precise inputs, outputs, widgets, and valid values.\n\n';
+    for (const [packTitle, schemas] of sortedGroups) {
+      const sortedSchemas = [...schemas].sort((a, b) => a.class_type.localeCompare(b.class_type));
+      section += `### ${packTitle} (${sortedSchemas.length} nodes)\n\n`;
+      for (const schema of sortedSchemas) {
+        section += options.mode === 'full'
+          ? formatLiveNodeForPromptFull(schema)
+          : formatLiveNodeForPrompt(schema);
+        totalNodes += 1;
+      }
     }
   }
 

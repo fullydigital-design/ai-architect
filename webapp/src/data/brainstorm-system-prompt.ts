@@ -1,3 +1,5 @@
+import { buildCascadeInstructions } from '../services/schema-cascade';
+
 /**
  * Build a system prompt for Brainstorm mode.
  * This mode is conversational and should never emit workflow JSON blocks.
@@ -8,9 +10,15 @@ export function buildBrainstormSystemPrompt(
   workflowSummary?: string,
   options?: {
     includeRecommendationFormat?: boolean;
+    schemaMode?: 'full' | 'compact' | 'names' | 'off';
+    currentStateNote?: string;
   },
 ): string {
   const includeRecommendationFormat = options?.includeRecommendationFormat === true;
+  const cascadeSection = options?.schemaMode === 'names' ? buildCascadeInstructions() : '';
+  const currentStateSection = options?.currentStateNote
+    ? `\n## CURRENT STATE (most recent — trust this over earlier answers)\n${options.currentStateNote}\n`
+    : '';
 
   const recommendationFormatSection = includeRecommendationFormat
     ? `
@@ -120,7 +128,6 @@ ${modelsSummary || 'No model information available yet.'}
 
 ${workflowSummary ? `## Current Workflow Context
 ${workflowSummary}
-` : ''}
-
-Be direct, opinionated, and exact. The user wants your expert recommendation, not a neutral survey.`;
+` : ''}${cascadeSection}${currentStateSection}
+Be direct, opinionated, and exact. The user wants your expert recommendation, not a neutral survey. When the user asks about counts ("how many nodes do you see", "what's available"), answer from CURRENT STATE — not from earlier turns in this conversation.`;
 }
