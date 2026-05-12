@@ -43,6 +43,9 @@ cursor-instructions
 # Local MCP config (machine-specific paths)
 .mcp.json
 
+# Claude Code per-machine state
+.claude/settings.local.json
+
 # Root-level temp files
 _tmp_*
 
