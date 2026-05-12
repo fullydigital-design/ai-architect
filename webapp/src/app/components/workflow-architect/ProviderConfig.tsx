@@ -586,7 +586,7 @@ export function ProviderConfig({
           ...settings.customModels,
           {
             id: model.id,
-            name: model.id.split('/').pop() || model.id,
+            name: model.displayName || model.id.split('/').pop() || model.id,
             provider: 'lmstudio' as AIProvider,
             contextLength: model.contextLength,
           },
@@ -596,7 +596,7 @@ export function ProviderConfig({
       customModels: nextCustomModels,
       selectedModel: model.id,
     });
-    toast.success(`Selected ${model.id} via LM Studio.`);
+    toast.success(`Selected ${model.displayName || model.id} via LM Studio.`);
   };
 
   // All default + custom for the grouped display in My Models
@@ -849,22 +849,34 @@ export function ProviderConfig({
                         {lmstudioModels.map((model) => {
                           const isSelected = settings.selectedModel === model.id;
                           const isLoaded = model.loaded;
+                          const displayName = model.displayName || model.id;
                           return (
                             <div
                               key={model.id}
-                              className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-surface-inset border border-border-default"
+                              className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded border ${
+                                isLoaded
+                                  ? 'bg-surface-inset border-state-success/20'
+                                  : 'bg-surface-inset border-border-default'
+                              }`}
                             >
                               <div className="flex-1 min-w-0">
-                                <div className="text-[11px] text-content-primary font-mono truncate">{model.id}</div>
-                                <div className="flex items-center gap-2 text-[9px] text-content-muted">
+                                <div className="flex items-center gap-1.5">
                                   <span className={isLoaded ? 'text-state-success' : 'text-content-muted'}>
-                                    {isLoaded ? '● loaded' : '○ unloaded'}
+                                    {isLoaded ? '●' : '○'}
                                   </span>
+                                  <span className="text-[11px] text-content-primary truncate">{displayName}</span>
+                                </div>
+                                <div className="text-[9px] text-content-muted font-mono truncate">{model.id}</div>
+                                <div className="flex items-center gap-2 text-[9px] text-content-muted flex-wrap">
+                                  {model.params && <span>{model.params}</span>}
+                                  {model.quantization && <span>{model.quantization}</span>}
                                   {model.contextLength && (
                                     <span>ctx {model.contextLength.toLocaleString()}</span>
                                   )}
-                                  {model.quantization && <span>{model.quantization}</span>}
                                   {model.arch && <span>{model.arch}</span>}
+                                  {model.vision && <span className="text-state-info">vision</span>}
+                                  {model.toolUse && <span className="text-state-info">tools</span>}
+                                  {model.reasoning && <span className="text-state-info">reasoning</span>}
                                 </div>
                               </div>
                               <button
@@ -886,7 +898,7 @@ export function ProviderConfig({
                         })}
                         {lmstudioProbedAt && (
                           <div className="text-[9px] text-content-muted">
-                            Probed {new Date(lmstudioProbedAt).toLocaleTimeString()}
+                            Probed {new Date(lmstudioProbedAt).toLocaleTimeString()} · {lmstudioModels.filter((m) => m.loaded).length} loaded / {lmstudioModels.length} total
                           </div>
                         )}
                       </div>
