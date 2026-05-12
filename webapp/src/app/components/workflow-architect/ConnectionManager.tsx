@@ -9,16 +9,21 @@ const LAUNCH_CONFIG_KEY = 'comfyui-architect-launch-config';
 
 interface LaunchConfig {
   root: string;
-  pythonExe: string;
   port: number;
 }
 
 function loadLaunchConfig(): LaunchConfig {
   try {
     const stored = localStorage.getItem(LAUNCH_CONFIG_KEY);
-    if (stored) return JSON.parse(stored) as LaunchConfig;
+    if (stored) {
+      const parsed = JSON.parse(stored) as Partial<LaunchConfig> & { pythonExe?: string };
+      return {
+        root: parsed.root ?? '',
+        port: typeof parsed.port === 'number' ? parsed.port : 8188,
+      };
+    }
   } catch { /* ignore */ }
-  return { root: '', pythonExe: '', port: 8188 };
+  return { root: '', port: 8188 };
 }
 
 function saveLaunchConfig(cfg: LaunchConfig) {
@@ -93,6 +98,7 @@ export function ConnectionManager({
   // Launch section state
   const [launchConfig, setLaunchConfig] = useState<LaunchConfig>(loadLaunchConfig);
   const [showLogs, setShowLogs] = useState(false);
+  const [detectedPython, setDetectedPython] = useState<string | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // Prefill from comfyui-paths.config.json on first mount (Electron only)
@@ -103,14 +109,25 @@ export function ConnectionManager({
     void getDefaultPaths().then((defaults) => {
       if (!defaults) return;
       const cfg: LaunchConfig = {
-        root:      defaults.comfyui_root || '',
-        pythonExe: defaults.python_exe   || '',
-        port:      8188,
+        root: defaults.comfyui_root || '',
+        port: 8188,
       };
       setLaunchConfig(cfg);
       saveLaunchConfig(cfg);
     });
   }, [isElectron, getDefaultPaths]);
+
+  // Detect available Python interpreter once on mount (Electron only).
+  useEffect(() => {
+    if (!isElectron) return;
+    const api = window.electronAPI;
+    if (!api?.detectPython) return;
+    void api.detectPython().then((info) => {
+      if (info?.display) setDetectedPython(info.display);
+    }).catch(() => {
+      // Detection is best-effort; leave the UI hint blank.
+    });
+  }, [isElectron]);
 
   // Auto-scroll logs to bottom
   useEffect(() => {
@@ -211,9 +228,8 @@ export function ConnectionManager({
   const handleStart = async () => {
     setShowLogs(true);
     await start({
-      root:      launchConfig.root,
-      port:      launchConfig.port,
-      pythonExe: launchConfig.pythonExe,
+      root: launchConfig.root,
+      port: launchConfig.port,
     });
     // Update the connection URL to match the launched port
     const newUrl = `http://127.0.0.1:${launchConfig.port}`;
@@ -380,27 +396,25 @@ export function ConnectionManager({
                   className="w-full rounded border border-border-strong bg-surface-secondary px-2 py-1 text-[10px] text-content-primary outline-none focus:border-primary/50 disabled:opacity-50 font-mono"
                 />
               </div>
-              <div>
-                <label className="text-[10px] text-content-muted block mb-0.5">Python Executable</label>
-                <input
-                  value={launchConfig.pythonExe}
-                  onChange={(e) => handleLaunchConfigChange('pythonExe', e.target.value)}
-                  placeholder="C:\...\python.exe"
-                  disabled={isRunning || isLaunching}
-                  className="w-full rounded border border-border-strong bg-surface-secondary px-2 py-1 text-[10px] text-content-primary outline-none focus:border-primary/50 disabled:opacity-50 font-mono"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-content-muted block mb-0.5">Port</label>
-                <input
-                  type="number"
-                  value={launchConfig.port}
-                  onChange={(e) => handleLaunchConfigChange('port', parseInt(e.target.value, 10) || 8188)}
-                  min={1024}
-                  max={65535}
-                  disabled={isRunning || isLaunching}
-                  className="w-24 rounded border border-border-strong bg-surface-secondary px-2 py-1 text-[10px] text-content-primary outline-none focus:border-primary/50 disabled:opacity-50"
-                />
+              <div className="flex items-end gap-2">
+                <div>
+                  <label className="text-[10px] text-content-muted block mb-0.5">Port</label>
+                  <input
+                    type="number"
+                    value={launchConfig.port}
+                    onChange={(e) => handleLaunchConfigChange('port', parseInt(e.target.value, 10) || 8188)}
+                    min={1024}
+                    max={65535}
+                    disabled={isRunning || isLaunching}
+                    className="w-24 rounded border border-border-strong bg-surface-secondary px-2 py-1 text-[10px] text-content-primary outline-none focus:border-primary/50 disabled:opacity-50"
+                  />
+                </div>
+                <div className="flex-1 text-[9px] text-content-faint truncate pb-1">
+                  Python:&nbsp;
+                  <span className="font-mono text-content-muted">
+                    {detectedPython ?? 'detecting…'}
+                  </span>
+                </div>
               </div>
             </div>
 

@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startComfyUI: (opts) =>
     ipcRenderer.invoke('start-comfyui', opts),
 
+  detectPython: () =>
+    ipcRenderer.invoke('detect-python'),
+
   stopComfyUI: () =>
     ipcRenderer.invoke('stop-comfyui'),
 

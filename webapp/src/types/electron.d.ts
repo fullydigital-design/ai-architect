@@ -8,14 +8,22 @@ export interface ElectronDefaultPaths {
 export interface ComfyUIStartOptions {
   root: string;
   port: number;
-  pythonExe: string;
+  /** Optional explicit override. When blank, the Electron main process auto-detects. */
+  pythonExe?: string;
   extraArgs?: string[];
+}
+
+export interface DetectedPython {
+  cmd: string;
+  prefixArgs: string[];
+  display: string;
 }
 
 export interface ElectronAPI {
   isElectron: true;
   getDefaultPaths: () => Promise<ElectronDefaultPaths>;
   startComfyUI: (opts: ComfyUIStartOptions) => Promise<{ ok?: boolean; pid?: number; error?: string }>;
+  detectPython: () => Promise<DetectedPython>;
   stopComfyUI: () => Promise<{ ok?: boolean; error?: string }>;
   isComfyUIRunning: () => Promise<boolean>;
   onComfyUILog: (callback: (data: { type: 'stdout' | 'stderr'; text: string }) => void) => () => void;

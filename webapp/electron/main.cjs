@@ -1,9 +1,55 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, session, globalShortcut, Menu } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+
+// ── Python detection ───────────────────────────────────────────────────────────
+// Matches the strategy in LAUNCH_ComfyUI.bat: prefer Python 3.12 via the Windows
+// `py` launcher, fall back to `py`, then to `python3.12` / `python3` / `python`.
+// Cached after first successful detection.
+
+let detectedPython = null;
+
+function probePython(cmd, args) {
+  try {
+    const result = spawnSync(cmd, [...args, '--version'], {
+      stdio: 'pipe',
+      timeout: 3000,
+      windowsHide: true,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function detectPythonCommand() {
+  if (detectedPython) return detectedPython;
+  const isWin = process.platform === 'win32';
+  const candidates = isWin
+    ? [
+        { cmd: 'py', prefixArgs: ['-3.12'] },
+        { cmd: 'py', prefixArgs: ['-3'] },
+        { cmd: 'py', prefixArgs: [] },
+        { cmd: 'python3.12', prefixArgs: [] },
+        { cmd: 'python3', prefixArgs: [] },
+        { cmd: 'python', prefixArgs: [] },
+      ]
+    : [
+        { cmd: 'python3.12', prefixArgs: [] },
+        { cmd: 'python3', prefixArgs: [] },
+        { cmd: 'python', prefixArgs: [] },
+      ];
+  for (const candidate of candidates) {
+    if (probePython(candidate.cmd, candidate.prefixArgs)) {
+      detectedPython = candidate;
+      return candidate;
+    }
+  }
+  return { cmd: 'python', prefixArgs: [] }; // last-resort, may fail at spawn
+}
 
 // ── Config loading ─────────────────────────────────────────────────────────────
 
@@ -129,6 +175,17 @@ ipcMain.handle('get-default-paths', () => {
   };
 });
 
+ipcMain.handle('detect-python', () => {
+  const detected = detectPythonCommand();
+  return {
+    cmd: detected.cmd,
+    prefixArgs: detected.prefixArgs,
+    display: detected.prefixArgs.length > 0
+      ? `${detected.cmd} ${detected.prefixArgs.join(' ')}`
+      : detected.cmd,
+  };
+});
+
 ipcMain.handle('start-comfyui', (_event, opts = {}) => {
   if (comfyProcess && !comfyProcess.killed) {
     return { error: 'ComfyUI is already running' };
@@ -137,7 +194,7 @@ ipcMain.handle('start-comfyui', (_event, opts = {}) => {
   const {
     root,
     port = 8188,
-    pythonExe = 'python',
+    pythonExe, // optional override; auto-detect when blank
     extraArgs = [],
   } = opts;
 
@@ -146,7 +203,21 @@ ipcMain.handle('start-comfyui', (_event, opts = {}) => {
     return { error: `main.py not found in: ${root}` };
   }
 
+  // Decide which Python to spawn. If the caller passed an explicit override,
+  // honor it. Otherwise auto-detect (py -3.12 preferred on Windows).
+  let cmd;
+  let prefixArgs;
+  if (pythonExe && pythonExe.trim().length > 0) {
+    cmd = pythonExe.trim();
+    prefixArgs = [];
+  } else {
+    const detected = detectPythonCommand();
+    cmd = detected.cmd;
+    prefixArgs = detected.prefixArgs;
+  }
+
   const args = [
+    ...prefixArgs,
     'main.py',
     '--listen', '127.0.0.1',
     '--port', String(port),
@@ -158,18 +229,28 @@ ipcMain.handle('start-comfyui', (_event, opts = {}) => {
   ];
 
   try {
-    comfyProcess = spawn(pythonExe, args, {
+    comfyProcess = spawn(cmd, args, {
       cwd: root,
       env: {
         ...process.env,
         PYTHONIOENCODING: 'utf-8',
         PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True',
         CUDA_MODULE_LOADING: 'LAZY',
+        HF_HUB_ENABLE_HF_TRANSFER: '1',
+        TORCH_CUDNN_V8_API_ENABLED: '1',
       },
+      windowsHide: true,
     });
   } catch (err) {
     return { error: `Failed to spawn process: ${err.message}` };
   }
+
+  // Surface what was spawned so the UI/logs make the auto-detection visible.
+  const launchedAs = prefixArgs.length > 0 ? `${cmd} ${prefixArgs.join(' ')}` : cmd;
+  mainWindow?.webContents.send('comfyui-log', {
+    type: 'stdout',
+    text: `[Launcher] Using ${launchedAs} (cwd: ${root}, port: ${port})\n`,
+  });
 
   comfyProcess.stdout.on('data', (data) => {
     mainWindow?.webContents.send('comfyui-log', { type: 'stdout', text: data.toString() });
