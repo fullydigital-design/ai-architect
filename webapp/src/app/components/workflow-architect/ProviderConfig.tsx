@@ -52,6 +52,7 @@ import {
   type CustomNodePackInfo,
 } from '../../../data/custom-node-registry';
 import { fetchOpenRouterModels, getCachedOpenRouterModels } from '../../services/openrouter-service';
+import { fetchLMStudioModels, type LMStudioModelInfo } from '../../../services/lmstudio-service';
 import { toast } from 'sonner';
 
 // ── ComfyUI Backend Connection Sub-Panel ─────────────────────────────────────
@@ -444,6 +445,10 @@ export function ProviderConfig({
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [addModelProvider, setAddModelProvider] = useState<AIProvider>('openai');
   const [addModelId, setAddModelId] = useState('');
+  const [lmstudioProbing, setLmstudioProbing] = useState(false);
+  const [lmstudioModels, setLmstudioModels] = useState<LMStudioModelInfo[]>([]);
+  const [lmstudioError, setLmstudioError] = useState<string | null>(null);
+  const [lmstudioProbedAt, setLmstudioProbedAt] = useState<number | null>(null);
 
   useEffect(() => {
     const openrouterKey = settings.keys.openrouter?.trim();
@@ -546,6 +551,52 @@ export function ProviderConfig({
       ...settings,
       keys: { ...settings.keys, [provider]: value },
     });
+  };
+
+  const detectLMStudioModels = async () => {
+    setLmstudioProbing(true);
+    setLmstudioError(null);
+    try {
+      const probe = await fetchLMStudioModels(settings.keys.lmstudio);
+      setLmstudioModels(probe.models);
+      setLmstudioProbedAt(Date.now());
+      const loadedCount = probe.models.filter((m) => m.loaded).length;
+      if (probe.models.length === 0) {
+        toast.info('LM Studio reachable, but no models exposed.');
+      } else if (loadedCount === 0) {
+        toast.info(`Found ${probe.models.length} model(s) in LM Studio — none currently loaded.`);
+      } else {
+        toast.success(`LM Studio: ${loadedCount} loaded model(s) detected.`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'LM Studio unreachable';
+      setLmstudioError(message);
+      setLmstudioModels([]);
+      toast.error(message);
+    } finally {
+      setLmstudioProbing(false);
+    }
+  };
+
+  const useLMStudioModel = (model: LMStudioModelInfo) => {
+    const existing = settings.customModels.find((m) => m.id === model.id);
+    const nextCustomModels = existing
+      ? settings.customModels
+      : [
+          ...settings.customModels,
+          {
+            id: model.id,
+            name: model.id.split('/').pop() || model.id,
+            provider: 'lmstudio' as AIProvider,
+            contextLength: model.contextLength,
+          },
+        ];
+    onSettingsChange({
+      ...settings,
+      customModels: nextCustomModels,
+      selectedModel: model.id,
+    });
+    toast.success(`Selected ${model.id} via LM Studio.`);
   };
 
   // All default + custom for the grouped display in My Models
@@ -762,15 +813,84 @@ export function ProviderConfig({
                         </button>
                       )}
                     </div>
-                    <a
-                      href={info.keyUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10px] text-accent-text hover:text-accent-text transition-colors"
-                    >
-                      {info.keyUrlLabel}
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
+                    <div className="flex items-center justify-between gap-2">
+                      <a
+                        href={info.keyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[10px] text-accent-text hover:text-accent-text transition-colors"
+                      >
+                        {info.keyUrlLabel}
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                      {isLocal && (
+                        <button
+                          type="button"
+                          onClick={detectLMStudioModels}
+                          disabled={lmstudioProbing}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 disabled:opacity-50 text-[10px] text-content-secondary transition-colors"
+                        >
+                          {lmstudioProbing ? (
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-2.5 h-2.5" />
+                          )}
+                          {lmstudioProbing ? 'Probing…' : 'Detect loaded models'}
+                        </button>
+                      )}
+                    </div>
+                    {isLocal && (lmstudioModels.length > 0 || lmstudioError) && (
+                      <div className="mt-1 space-y-1">
+                        {lmstudioError && (
+                          <div className="text-[10px] text-state-danger px-2 py-1 rounded bg-state-danger-muted/30 border border-state-danger/20">
+                            {lmstudioError}
+                          </div>
+                        )}
+                        {lmstudioModels.map((model) => {
+                          const isSelected = settings.selectedModel === model.id;
+                          const isLoaded = model.loaded;
+                          return (
+                            <div
+                              key={model.id}
+                              className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-surface-inset border border-border-default"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[11px] text-content-primary font-mono truncate">{model.id}</div>
+                                <div className="flex items-center gap-2 text-[9px] text-content-muted">
+                                  <span className={isLoaded ? 'text-state-success' : 'text-content-muted'}>
+                                    {isLoaded ? '● loaded' : '○ unloaded'}
+                                  </span>
+                                  {model.contextLength && (
+                                    <span>ctx {model.contextLength.toLocaleString()}</span>
+                                  )}
+                                  {model.quantization && <span>{model.quantization}</span>}
+                                  {model.arch && <span>{model.arch}</span>}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => useLMStudioModel(model)}
+                                disabled={!isLoaded || isSelected}
+                                className={`shrink-0 px-2 py-1 rounded text-[10px] transition-colors ${
+                                  isSelected
+                                    ? 'bg-state-success-muted text-state-success border border-state-success/20'
+                                    : isLoaded
+                                      ? 'bg-accent hover:bg-accent-hover text-accent-contrast'
+                                      : 'bg-surface-2 text-content-muted cursor-not-allowed'
+                                }`}
+                              >
+                                {isSelected ? 'In use' : isLoaded ? 'Use' : 'Not loaded'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {lmstudioProbedAt && (
+                          <div className="text-[9px] text-content-muted">
+                            Probed {new Date(lmstudioProbedAt).toLocaleTimeString()}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
