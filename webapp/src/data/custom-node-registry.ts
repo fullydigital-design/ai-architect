@@ -18,6 +18,7 @@ import {
 } from '../app/services/comfyui-manager-service';
 import { getNodeToPackMapping, type NodeToPackMapping } from '../app/services/node-pack-mapper';
 import { NODE_REGISTRY } from './node-registry';
+import { logger } from '@/utils/logger';
 
 // ---- Types ----------------------------------------------------------------
 
@@ -536,10 +537,10 @@ async function fetchManagerRegistry(comfyuiUrl?: string): Promise<CustomNodePack
       })
       .filter((pack): pack is CustomNodePackInfo => pack !== null);
     const deduped = mergeRegistryPacks(packs, []);
-    console.log(`[CustomNodeRegistry] Manager source: ${deduped.length} pack(s)`);
+    logger.log(`[CustomNodeRegistry] Manager source: ${deduped.length} pack(s)`);
     return deduped;
   } catch (error) {
-    console.warn('[CustomNodeRegistry] Manager source failed:', error);
+    logger.warn('[CustomNodeRegistry] Manager source failed:', error);
     return [];
   }
 }
@@ -572,7 +573,7 @@ export async function fetchCustomNodeRegistry(options?: FetchRegistryOptions): P
       const rawList = parseRawNodePackList(listData);
       const githubPacks = buildPacksFromRawList(rawList, mapData || {});
       const merged = mergeRegistryPacks(githubPacks, managerPacks);
-      console.log(
+      logger.log(
         `[CustomNodeRegistry] GitHub source: ${githubPacks.length} pack(s), merged total: ${merged.length}`,
       );
 
@@ -581,7 +582,7 @@ export async function fetchCustomNodeRegistry(options?: FetchRegistryOptions): P
     } catch (err) {
       const managerPacks = await managerPacksPromise;
       if (managerPacks.length > 0) {
-        console.warn('[CustomNodeRegistry] Falling back to manager-only registry');
+        logger.warn('[CustomNodeRegistry] Falling back to manager-only registry');
         return managerPacks;
       }
       _registryPromise = null;
@@ -667,7 +668,7 @@ function toRegistryPackFromManagerCacheNode(node: ManagerCacheNode): CustomNodeP
   const title = String(node.title ?? '').trim();
   if (!reference || !title) return null;
 
-  const nodeNames = getRawPackNodeNames(node);
+  const nodeNames = getRawPackNodeNames(node as unknown as Partial<RawNodePack>);
   const installType = String(node.install_type ?? 'git-clone');
   const stars = typeof node.stars === 'number' ? node.stars : Number(node.stars ?? 0) || 0;
 

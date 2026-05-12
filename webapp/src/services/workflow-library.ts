@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import type {
   ComfyUIWorkflow,
   FragmentType,
@@ -126,7 +127,7 @@ export function loadWorkflowLibrary(): WorkflowTemplate[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as WorkflowTemplate[]) : [];
   } catch (error) {
-    console.error('[WorkflowLibrary] Failed to load:', error);
+    logger.error('[WorkflowLibrary] Failed to load:', error);
     return [];
   }
 }
@@ -138,7 +139,7 @@ function saveWorkflowLibrary(library: WorkflowTemplate[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
   } catch (error) {
-    console.error('[WorkflowLibrary] Failed to save:', error);
+    logger.error('[WorkflowLibrary] Failed to save:', error);
   }
 }
 

@@ -9,8 +9,9 @@
  *   # triton is not available on Windows - ignore this warning
  *   # mediapipe/anyline need version-specific fixes - low priority
  */
-import { getObjectInfo } from '../../services/comfyui-object-info-cache';
+import { getObjectInfo, invalidateObjectInfoCache } from '../../services/comfyui-object-info-cache';
 import { getComfyUIBaseUrl, resolveComfyUIBaseUrl } from '../../services/api-config';
+import { logger } from '@/utils/logger';
 
 export interface ManagerNode {
   id: string;
@@ -419,15 +420,15 @@ async function queueFetch(
     options.body = JSON.stringify(body);
   }
 
-  console.log(`[Queue API] ${method} ${url}`);
+  logger.log(`[Queue API] ${method} ${url}`);
   try {
     const response = await fetchWithTimeout(url, options, timeoutMs);
     const responseBody = await safeReadText(response);
-    console.log(`[Queue API] ${method} ${url} -> ${response.status}`);
+    logger.log(`[Queue API] ${method} ${url} -> ${response.status}`);
     return { ok: response.ok, status: response.status, responseBody };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[Queue API] ${method} ${url} -> network error (${message})`);
+    logger.error(`[Queue API] ${method} ${url} -> network error (${message})`);
     return { ok: false, status: 0, responseBody: message };
   }
 }
@@ -512,7 +513,7 @@ async function managerFetch(
     ...init,
     headers,
   };
-  console.log(`[Manager API] ${method} ${url}`);
+  logger.log(`[Manager API] ${method} ${url}`);
 
   try {
     const response = await fetchWithTimeout(url, requestInit, timeoutMs);
@@ -520,20 +521,20 @@ async function managerFetch(
       const body = await safeReadText(response);
       const preview = formatBodyPreview(body);
       if (silentStatuses.includes(response.status)) {
-        console.log(`[Manager API] ${method} ${url} -> ${response.status}`);
+        logger.log(`[Manager API] ${method} ${url} -> ${response.status}`);
       } else {
-        console.error(`[Manager API] ${method} ${url} -> ${response.status}: ${preview}`);
+        logger.error(`[Manager API] ${method} ${url} -> ${response.status}: ${preview}`);
       }
       return { response, errorBody: body };
     }
 
     const contentLength = response.headers.get('content-length');
     const sizeSuffix = contentLength ? ` (${Math.round((Number(contentLength) / 1024) * 10) / 10} KB)` : '';
-    console.log(`[Manager API] ${method} ${url} -> ${response.status}${sizeSuffix}`);
+    logger.log(`[Manager API] ${method} ${url} -> ${response.status}${sizeSuffix}`);
     return { response, errorBody: '' };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[Manager API] ${method} ${url} -> network error (${message})`);
+    logger.error(`[Manager API] ${method} ${url} -> network error (${message})`);
     throw error;
   }
 }
@@ -605,7 +606,7 @@ async function detectManager(comfyuiUrl: string): Promise<boolean> {
     `${base}/api/manager/check`,
   ];
 
-  console.log('[Manager Detection] Checking at:', base);
+  logger.log('[Manager Detection] Checking at:', base);
 
   for (const url of [...v2Endpoints, ...v3Endpoints]) {
     try {
@@ -619,16 +620,16 @@ async function detectManager(comfyuiUrl: string): Promise<boolean> {
       // 200 = healthy Manager endpoint; 500 = endpoint exists but failed server-side.
       // 404 means the route is missing (Manager likely not installed for that endpoint).
       if (response.status !== 404) {
-        console.log(`[Manager Detection] FOUND via ${url} (status: ${response.status})`);
+        logger.log(`[Manager Detection] FOUND via ${url} (status: ${response.status})`);
         return true;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.log(`[Manager Detection] ${url} -> network error (${message})`);
+      logger.log(`[Manager Detection] ${url} -> network error (${message})`);
     }
   }
 
-  console.log('[Manager Detection] No manager endpoints responded');
+  logger.log('[Manager Detection] No manager endpoints responded');
   return false;
 }
 
@@ -689,7 +690,7 @@ function triggerNodePackMappingPrebuild(): void {
   import('./node-pack-mapper')
     .then((module) => module.getNodeToPackMapping())
     .then((mapping) => {
-      console.log(
+      logger.log(
         `[NodePackMapper] Pre-built: ${mapping.nodeClassToPack.size} node->pack mappings, ${mapping.builtinNodes.size} built-in nodes`,
       );
     })
@@ -789,7 +790,7 @@ export async function getManagerNodeList(
           : rawNodeList.map(normalizeManagerNode);
 
         if (nodes.length === 0 && attempt.parser === 'list') {
-          console.warn(`[Manager Node List] ${attempt.url} returned an empty list, trying fallback endpoint`);
+          logger.warn(`[Manager Node List] ${attempt.url} returned an empty list, trying fallback endpoint`);
           continue;
         }
 
@@ -812,16 +813,16 @@ export async function getManagerNodeList(
             .length;
           const availableCount = Math.max(0, rawNodeList.length - installedCount);
           if (attempt.url.includes('/customnode/getlist?mode=local')) {
-            console.log(
+            logger.log(
               `[Manager Node List] Loaded ${rawNodeList.length} custom nodes from /customnode/getlist?mode=local (${installedCount} installed, ${availableCount} available)`,
             );
           } else {
-            console.log(
+            logger.log(
               `[Manager Node List] Loaded ${rawNodeList.length} custom nodes from ${attempt.url} (${installedCount} installed, ${availableCount} available)`,
             );
           }
         } else {
-          console.log(`[Manager Node List] Loaded ${nodes.length} packs from ${attempt.method} ${attempt.url}`);
+          logger.log(`[Manager Node List] Loaded ${nodes.length} packs from ${attempt.method} ${attempt.url}`);
         }
 
         // Warm up node->pack mapping in the background for requirements analysis flows.
@@ -830,12 +831,12 @@ export async function getManagerNodeList(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         lastError = message;
-        console.log(`[Manager Node List] ${attempt.method} ${attempt.url} failed: ${message}`);
+        logger.log(`[Manager Node List] ${attempt.method} ${attempt.url} failed: ${message}`);
       }
     }
 
     setManagerNodeListStatus(base, false, NODE_LIST_UNAVAILABLE_WARNING);
-    console.warn(
+    logger.warn(
       `[Manager] Node list unavailable (Manager detected but list endpoints returned errors). Last error: ${lastError || `HTTP ${lastStatus || 0}`}`,
     );
     return [];
@@ -944,7 +945,7 @@ async function queueOperation(
       const packTitle = payload.title || payload.id || payload.reference || 'Unknown pack';
       const actionLabel = queueAction === 'install' ? 'Install' : queueAction === 'uninstall' ? 'Uninstall' : 'Update';
 
-      console.log(`[${actionLabel}] Step 1: Resetting queue...`);
+      logger.log(`[${actionLabel}] Step 1: Resetting queue...`);
       publishStatus(comfyuiUrl, 'queueing', `${actionLabel}: resetting queue`, onStatus, { action: queueAction, packTitle });
       const reset = await queueFetch(comfyuiUrl, 'reset', 'GET', undefined, 30_000);
       if (!reset.ok) {
@@ -961,7 +962,7 @@ async function queueOperation(
         };
       }
 
-      console.log(`[${actionLabel}] Step 2: Queueing ${queueAction} for: ${packTitle}`);
+      logger.log(`[${actionLabel}] Step 2: Queueing ${queueAction} for: ${packTitle}`);
       publishStatus(comfyuiUrl, 'queueing', `${actionLabel}: queueing ${packTitle}`, onStatus, { action: queueAction, packTitle });
       const queued = await queueFetch(comfyuiUrl, queueAction, 'POST', payload, 120_000);
       if (!queued.ok) {
@@ -1009,13 +1010,13 @@ async function queueOperation(
         }
       }
 
-      console.log(`[${actionLabel}] Step 3: Starting queue...`);
+      logger.log(`[${actionLabel}] Step 3: Starting queue...`);
       publishStatus(comfyuiUrl, 'installing', `${actionLabel}: processing ${packTitle}`, onStatus, { action: queueAction, packTitle });
       const started = await queueFetch(comfyuiUrl, 'start', 'GET', undefined, 30_000);
       if (!started.ok) {
-        console.warn(`[${actionLabel}] Queue start returned ${started.status}. Continuing because job may still be queued.`);
+        logger.warn(`[${actionLabel}] Queue start returned ${started.status}. Continuing because job may still be queued.`);
       } else {
-        console.log(`[${actionLabel}] Queue started successfully for: ${packTitle}`);
+        logger.log(`[${actionLabel}] Queue started successfully for: ${packTitle}`);
       }
 
       publishStatus(comfyuiUrl, 'installing', `${actionLabel}: queued successfully for ${packTitle}`, onStatus, { action: queueAction, packTitle });
@@ -1074,9 +1075,9 @@ async function pollInstallCompletion(
         const statusPayload = statusResponse.responseBody
           ? JSON.parse(statusResponse.responseBody)
           : null;
-        console.log('[BatchInstall] Queue status:', statusPayload);
+        logger.log('[BatchInstall] Queue status:', statusPayload);
         if (isQueueIdle(statusPayload)) {
-          console.log('[BatchInstall] Queue is idle - install batch complete');
+          logger.log('[BatchInstall] Queue is idle - install batch complete');
           publishStatus(comfyuiUrl, 'online', 'Queue finished processing', statusCallback, { packCount });
           return;
         }
@@ -1086,7 +1087,7 @@ async function pollInstallCompletion(
     }
 
     if (!statusResponse.ok && elapsedMs >= estimatedMs) {
-      console.log('[BatchInstall] Queue status endpoint unavailable; estimated install window elapsed');
+      logger.log('[BatchInstall] Queue status endpoint unavailable; estimated install window elapsed');
       publishStatus(
         comfyuiUrl,
         'installing',
@@ -1098,7 +1099,7 @@ async function pollInstallCompletion(
     }
   }
 
-  console.warn('[BatchInstall] Queue completion polling timed out, proceeding');
+  logger.warn('[BatchInstall] Queue completion polling timed out, proceeding');
   publishStatus(comfyuiUrl, 'error', 'Queue completion polling timed out', statusCallback, { packCount });
 }
 
@@ -1145,7 +1146,7 @@ export async function batchQueuePacks(
       return { succeeded, failed };
     }
 
-    console.log(`[Batch${opLabel}] Resetting queue for ${packs.length} pack(s)...`);
+    logger.log(`[Batch${opLabel}] Resetting queue for ${packs.length} pack(s)...`);
     publishStatus(comfyuiUrl, 'queueing', `Batch ${operation}: resetting queue (${packs.length} packs)`, onStatus, { operation, total: packs.length });
     const reset = await queueFetch(comfyuiUrl, 'reset', 'GET', undefined, 30_000);
     if (!reset.ok) {
@@ -1172,7 +1173,7 @@ export async function batchQueuePacks(
         const queueResult = await queueFetch(comfyuiUrl, operation, 'POST', payload, 120_000);
         if (!queueResult.ok) {
           const error = `${queueResult.status}${queueResult.responseBody ? ` ${formatBodyPreview(queueResult.responseBody)}` : ''}`;
-          console.error(`[Batch${opLabel}] Failed to queue ${packId}: ${error}`);
+          logger.error(`[Batch${opLabel}] Failed to queue ${packId}: ${error}`);
           publishStatus(comfyuiUrl, 'error', `Batch ${operation}: failed to queue ${packId}`, onStatus, { operation, packId, status: queueResult.status });
           failed.push({ id: packId, error });
           continue;
@@ -1180,7 +1181,7 @@ export async function batchQueuePacks(
 
         const queueError = parseQueueError(queueResult.responseBody);
         if (queueError) {
-          console.error(`[Batch${opLabel}] Manager rejected ${packId}: ${queueError}`);
+          logger.error(`[Batch${opLabel}] Manager rejected ${packId}: ${queueError}`);
           publishStatus(comfyuiUrl, 'error', `Batch ${operation}: manager rejected ${packId}`, onStatus, { operation, packId });
           failed.push({ id: packId, error: queueError });
           continue;
@@ -1189,7 +1190,7 @@ export async function batchQueuePacks(
         succeeded.push(packId);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`[Batch${opLabel}] Failed to prepare ${fallbackId}: ${message}`);
+        logger.error(`[Batch${opLabel}] Failed to prepare ${fallbackId}: ${message}`);
         publishStatus(comfyuiUrl, 'error', `Batch ${operation}: failed to prepare ${fallbackId}`, onStatus, { operation, packId: fallbackId });
         failed.push({ id: fallbackId, error: message });
       }
@@ -1202,12 +1203,12 @@ export async function batchQueuePacks(
     }
 
     callbacks?.onQueueComplete?.();
-    console.log(`[Batch${opLabel}] Starting queue (${succeeded.length} queued, ${failed.length} failed)...`);
+    logger.log(`[Batch${opLabel}] Starting queue (${succeeded.length} queued, ${failed.length} failed)...`);
     publishStatus(comfyuiUrl, 'installing', `Batch ${operation}: processing ${succeeded.length} queued pack(s)`, onStatus, { operation, succeeded: succeeded.length, failed: failed.length });
     const started = await queueFetch(comfyuiUrl, 'start', 'GET', undefined, 30_000);
     if (!started.ok && started.status !== 201) {
       callbacks?.onError?.(`Queue start failed: ${started.status}`);
-      console.error(`[Batch${opLabel}] Queue start failed: ${started.status}`);
+      logger.error(`[Batch${opLabel}] Queue start failed: ${started.status}`);
       publishStatus(comfyuiUrl, 'error', `Batch ${operation}: queue start failed (${started.status})`, onStatus, { operation, status: started.status });
     }
 
@@ -1345,7 +1346,7 @@ export async function rebootComfyUI(comfyuiUrl?: string): Promise<boolean> {
     { path: '/manager/reboot', method: 'POST' },
   ];
 
-  console.log('[Reboot] Rebooting ComfyUI...');
+  logger.log('[Reboot] Rebooting ComfyUI...');
   publishStatus(comfyuiUrl, 'restarting', 'Triggering ComfyUI reboot...');
 
   for (const endpoint of endpoints) {
@@ -1359,7 +1360,7 @@ export async function rebootComfyUI(comfyuiUrl?: string): Promise<boolean> {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.log(`[Reboot] ${url} error: ${message}`);
+      logger.log(`[Reboot] ${url} error: ${message}`);
     }
   }
 
@@ -1380,7 +1381,7 @@ export async function rebootAndWait(
 
   for (const url of endpoints) {
     try {
-      console.log(`[Reboot] Trying ${url}...`);
+      logger.log(`[Reboot] Trying ${url}...`);
       const response = await fetchWithTimeout(
         url,
         {
@@ -1391,23 +1392,23 @@ export async function rebootAndWait(
       ).catch(() => null);
 
       if (response === null) {
-        console.log(`[Reboot] ${url} connection dropped - reboot initiated`);
+        logger.log(`[Reboot] ${url} connection dropped - reboot initiated`);
         publishStatus(comfyuiUrl, 'restarting', `Reboot initiated via ${url} (connection dropped)`, onStatus);
         rebootInitiated = true;
         break;
       }
 
       if (response.ok || response.status === 200 || response.status === 202) {
-        console.log(`[Reboot] ${url} -> ${response.status} - reboot initiated`);
+        logger.log(`[Reboot] ${url} -> ${response.status} - reboot initiated`);
         publishStatus(comfyuiUrl, 'restarting', `Reboot initiated via ${url}`, onStatus, { status: response.status });
         rebootInitiated = true;
         break;
       }
 
-      console.log(`[Reboot] ${url} -> ${response.status}, trying next endpoint...`);
+      logger.log(`[Reboot] ${url} -> ${response.status}, trying next endpoint...`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.log(`[Reboot] ${url} threw error (expected during reboot): ${message}`);
+      logger.log(`[Reboot] ${url} threw error (expected during reboot): ${message}`);
       publishStatus(comfyuiUrl, 'restarting', `Reboot initiated via ${url} (${message})`, onStatus);
       rebootInitiated = true;
       break;
@@ -1415,14 +1416,14 @@ export async function rebootAndWait(
   }
 
   if (!rebootInitiated) {
-    console.error('[Reboot] No reboot endpoint responded with a usable signal');
+    logger.error('[Reboot] No reboot endpoint responded with a usable signal');
     publishStatus(comfyuiUrl, 'error', 'No reboot endpoint responded with a usable signal', onStatus);
     return false;
   }
 
   onRebootStarted?.();
   publishStatus(comfyuiUrl, 'restarting', 'Reboot initiated. Waiting for ComfyUI to go offline...', onStatus);
-  console.log('[Reboot] Reboot initiated. Waiting for server to go offline...');
+  logger.log('[Reboot] Reboot initiated. Waiting for server to go offline...');
 
   let serverWentDown = false;
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -1433,27 +1434,27 @@ export async function rebootAndWait(
         serverWentDown = true;
         break;
       }
-      console.log(`[Reboot] Server still up (attempt ${attempt + 1}/10)...`);
+      logger.log(`[Reboot] Server still up (attempt ${attempt + 1}/10)...`);
     } catch {
       serverWentDown = true;
-      console.log('[Reboot] Server is offline.');
+      logger.log('[Reboot] Server is offline.');
       publishStatus(comfyuiUrl, 'offline', 'ComfyUI is offline (restart in progress)', onStatus);
       break;
     }
   }
 
   if (!serverWentDown) {
-    console.warn('[Reboot] Server did not go offline within 20s, polling for restart anyway...');
+    logger.warn('[Reboot] Server did not go offline within 20s, polling for restart anyway...');
   }
 
-  console.log('[Reboot] Polling for ComfyUI to come back online...');
+  logger.log('[Reboot] Polling for ComfyUI to come back online...');
   const started = Date.now();
   while (Date.now() - started < maxWaitMs) {
     await sleep(3000);
     try {
       const response = await fetchWithTimeout(`${base}/system_stats`, { method: 'GET' }, 5000);
       if (response.ok) {
-        console.log('[Reboot] ComfyUI is back online!');
+        logger.log('[Reboot] ComfyUI is back online!');
         invalidateManagerCaches();
         invalidateObjectInfoCache();
         onRebootComplete?.();
@@ -1462,12 +1463,12 @@ export async function rebootAndWait(
       }
     } catch {
       const elapsed = Math.round((Date.now() - started) / 1000);
-      console.log(`[Reboot] Still waiting... (${elapsed}s elapsed)`);
+      logger.log(`[Reboot] Still waiting... (${elapsed}s elapsed)`);
       publishStatus(comfyuiUrl, 'restarting', `Waiting for ComfyUI restart... (${elapsed}s elapsed)`, onStatus, { elapsedSec: elapsed });
     }
   }
 
-  console.warn(`[Reboot] Timed out after ${Math.round(maxWaitMs / 1000)}s waiting for ComfyUI`);
+  logger.warn(`[Reboot] Timed out after ${Math.round(maxWaitMs / 1000)}s waiting for ComfyUI`);
   publishStatus(comfyuiUrl, 'error', `ComfyUI restart timed out after ${Math.round(maxWaitMs / 1000)}s`, onStatus);
   return false;
 }
@@ -1494,16 +1495,16 @@ export async function verifyInstallation(
       else missing.push(nodeType);
     }
 
-    console.log(
+    logger.log(
       `[Verify] ${found.length}/${uniqueTypes.length} node type(s) present after install`,
     );
     if (missing.length > 0) {
-      console.warn('[Verify] Missing node types after install:', missing);
+      logger.warn('[Verify] Missing node types after install:', missing);
     }
 
     return { found, missing };
   } catch (error) {
-    console.error('[Verify] Failed to fetch /object_info for verification:', error);
+    logger.error('[Verify] Failed to fetch /object_info for verification:', error);
     return { found: [], missing: uniqueTypes };
   }
 }
@@ -1517,7 +1518,7 @@ export async function waitForComfyUI(
   const started = Date.now();
   const pollInterval = 3000;
 
-  console.log('[WaitForRestart] Waiting for ComfyUI to come back...');
+  logger.log('[WaitForRestart] Waiting for ComfyUI to come back...');
   publishStatus(comfyuiUrl, 'restarting', 'Waiting for ComfyUI to come back online...', onStatus);
 
   await sleep(5000);
@@ -1526,7 +1527,7 @@ export async function waitForComfyUI(
     try {
       const response = await fetchWithTimeout(`${base}/system_stats`, { method: 'GET' }, 5000);
       if (response.ok) {
-        console.log('[WaitForRestart] ComfyUI is back');
+        logger.log('[WaitForRestart] ComfyUI is back');
         await sleep(3000);
         invalidateManagerCaches();
         publishStatus(comfyuiUrl, 'online', 'ComfyUI is back online', onStatus);
@@ -1538,10 +1539,10 @@ export async function waitForComfyUI(
     }
 
     await sleep(pollInterval);
-    console.log('[WaitForRestart] Still waiting...', Math.round((Date.now() - started) / 1000), 'seconds');
+    logger.log('[WaitForRestart] Still waiting...', Math.round((Date.now() - started) / 1000), 'seconds');
   }
 
-  console.log('[WaitForRestart] Timed out');
+  logger.log('[WaitForRestart] Timed out');
   publishStatus(comfyuiUrl, 'error', 'Timed out waiting for ComfyUI restart', onStatus);
   return false;
 }
@@ -1764,9 +1765,9 @@ function normalizeFilenameForMatch(value: unknown): string {
     ?.toLowerCase() || '';
 }
 
-function isKnownGatedModelEntry(entry: ManagerModelRegistryRow | null): entry is KnownGatedModelEntry {
+function isKnownGatedModelEntry(entry: ManagerModelRegistryRow | KnownGatedModelEntry | null): entry is KnownGatedModelEntry {
   if (!entry) return false;
-  return entry._isGated === true;
+  return (entry as KnownGatedModelEntry)._isGated === true;
 }
 
 function normalizeUrlForMatch(value: unknown): string {
@@ -1846,19 +1847,19 @@ export async function fetchManagerModelRegistry(comfyuiUrl: string): Promise<Man
         );
         if (!response.ok) {
           const body = await safeReadText(response);
-          console.warn(`[ModelDownload] Registry fetch failed via ${url}: ${response.status}${body ? ` ${formatBodyPreview(body)}` : ''}`);
+          logger.warn(`[ModelDownload] Registry fetch failed via ${url}: ${response.status}${body ? ` ${formatBodyPreview(body)}` : ''}`);
           continue;
         }
 
         const payload = await response.json() as unknown;
         if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-          console.log('[ModelDownload] Registry response keys:', Object.keys(payload as Record<string, unknown>));
+          logger.log('[ModelDownload] Registry response keys:', Object.keys(payload as Record<string, unknown>));
         }
 
         const rows = extractModelRegistryRows(payload);
-        console.log(`[ModelDownload] Loaded ${rows.length} models from Manager registry (${url})`);
+        logger.log(`[ModelDownload] Loaded ${rows.length} models from Manager registry (${url})`);
         if (rows.length > 0) {
-          console.log('[ModelDownload] Sample entry:', JSON.stringify(rows[0], null, 2));
+          logger.log('[ModelDownload] Sample entry:', JSON.stringify(rows[0], null, 2));
         }
 
         managerModelRegistryCache = rows;
@@ -1867,7 +1868,7 @@ export async function fetchManagerModelRegistry(comfyuiUrl: string): Promise<Man
         return rows;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[ModelDownload] Registry fetch failed via ${url}: ${message}`);
+        logger.warn(`[ModelDownload] Registry fetch failed via ${url}: ${message}`);
       }
     }
 
@@ -1897,7 +1898,7 @@ export function findModelInRegistry(
     return entryFilename === targetFilenameExact;
   });
   if (byFilename) {
-    console.log(`[ModelDownload] Matched by filename: ${missingModel.filename}`);
+    logger.log(`[ModelDownload] Matched by filename: ${missingModel.filename}`);
     return byFilename;
   }
 
@@ -1908,7 +1909,7 @@ export function findModelInRegistry(
       return entryFilename === targetFilename;
     });
     if (byFilenameCaseInsensitive) {
-      console.log(`[ModelDownload] Matched by filename (normalized): ${missingModel.filename}`);
+      logger.log(`[ModelDownload] Matched by filename (normalized): ${missingModel.filename}`);
       return byFilenameCaseInsensitive;
     }
   }
@@ -1920,7 +1921,7 @@ export function findModelInRegistry(
       return candidateUrl === targetUrl;
     });
     if (byUrl) {
-      console.log(`[ModelDownload] Matched by URL: ${missingModel.url}`);
+      logger.log(`[ModelDownload] Matched by URL: ${missingModel.url}`);
       return byUrl;
     }
   }
@@ -1932,7 +1933,7 @@ export function findModelInRegistry(
       return entryFilename === fuzzyNeedle;
     });
     if (byFuzzy) {
-      console.log(`[ModelDownload] Matched by fuzzy name: ${fuzzyNeedle} -> ${String(byFuzzy.filename ?? byFuzzy.name ?? '')}`);
+      logger.log(`[ModelDownload] Matched by fuzzy name: ${fuzzyNeedle} -> ${String(byFuzzy.filename ?? byFuzzy.name ?? '')}`);
       return byFuzzy;
     }
   }
@@ -1941,7 +1942,7 @@ export function findModelInRegistry(
   if (targetName) {
     const byName = registry.find((entry) => String(entry.name ?? '').trim().toLowerCase().includes(targetName));
     if (byName) {
-      console.log(`[ModelDownload] Matched by name fallback: ${missingModel.name}`);
+      logger.log(`[ModelDownload] Matched by name fallback: ${missingModel.name}`);
       return byName;
     }
   }
@@ -1949,7 +1950,7 @@ export function findModelInRegistry(
   const gatedKey = normalizeFilenameForMatch(missingModel.filename);
   const knownGated = KNOWN_GATED_MODELS[gatedKey];
   if (knownGated) {
-    console.log(`[ModelDownload] Known gated model: ${missingModel.filename} -> ${knownGated.huggingface_page}`);
+    logger.log(`[ModelDownload] Known gated model: ${missingModel.filename} -> ${knownGated.huggingface_page}`);
     return {
       ...knownGated,
       _isGated: true,
@@ -1957,7 +1958,7 @@ export function findModelInRegistry(
     };
   }
 
-  console.warn(`[ModelDownload] No registry match for: ${missingModel.filename}`);
+  logger.warn(`[ModelDownload] No registry match for: ${missingModel.filename}`);
   return null;
 }
 
@@ -2022,7 +2023,7 @@ export async function downloadModel(
   });
 
   if (isKnownGatedModelEntry(registryEntry)) {
-    console.log(`[ModelDownload] Gated model detected: ${request.filename}. Manual download required.`);
+    logger.log(`[ModelDownload] Gated model detected: ${request.filename}. Manual download required.`);
     return {
       success: false,
       manualRequired: true,
@@ -2067,7 +2068,7 @@ export async function downloadModel(
       }
 
       const installPayload = JSON.stringify(registryEntry);
-      console.log('[ModelDownload] Sending verbatim registry entry:', {
+      logger.log('[ModelDownload] Sending verbatim registry entry:', {
         name: String(registryEntry.name ?? ''),
         filename: String(registryEntry.filename ?? ''),
         save_path: String(registryEntry.save_path ?? ''),
@@ -2133,7 +2134,7 @@ export async function downloadModel(
         return { success: false, message: startError || 'Queue start endpoint not available after queueing model install.' };
       }
 
-      console.log('[ModelDownload] Queue install accepted and started');
+      logger.log('[ModelDownload] Queue install accepted and started');
       return { success: true, message: `Download started: ${request.filename}` };
     });
 

@@ -36,6 +36,7 @@ import {
   type ModelDownloadInfo,
 } from '../../../services/model-download-service';
 import { useTheme } from '../../../hooks/useTheme';
+import { logger } from '@/utils/logger';
 
 const NODE_WIDTH = 320;
 const NODE_HEIGHT = 240;
@@ -730,7 +731,7 @@ export function WorkflowVisualizer({
     const V_GAP = 50;
 
     const getNodeHeight = (node: Node): number => {
-      const measured = node.measured?.height ?? node.height;
+      const measured = node.height;
       if (typeof measured === 'number' && Number.isFinite(measured) && measured > 0) {
         return measured;
       }
@@ -750,7 +751,7 @@ export function WorkflowVisualizer({
     };
 
     const getNodeWidth = (node: Node): number => {
-      const measured = node.measured?.width ?? node.width;
+      const measured = node.width;
       if (typeof measured === 'number' && Number.isFinite(measured) && measured > 0) {
         return measured;
       }
@@ -972,13 +973,13 @@ export function WorkflowVisualizer({
 
       for (const change of nodeChanges) {
         const widgetIndex = change.widgetIndex;
-        console.log(`[Optimizer Apply] Node ${change.nodeId} (${change.nodeType}): ${change.widgetName}`);
-        console.log(`[Optimizer Apply]   widgets_values index: ${widgetIndex}`);
-        console.log(`[Optimizer Apply]   Old value in array: ${JSON.stringify(values[widgetIndex])}`);
-        console.log(`[Optimizer Apply]   Setting to: ${JSON.stringify(change.newValue)}`);
+        logger.log(`[Optimizer Apply] Node ${change.nodeId} (${change.nodeType}): ${change.widgetName}`);
+        logger.log(`[Optimizer Apply]   widgets_values index: ${widgetIndex}`);
+        logger.log(`[Optimizer Apply]   Old value in array: ${JSON.stringify(values[widgetIndex])}`);
+        logger.log(`[Optimizer Apply]   Setting to: ${JSON.stringify(change.newValue)}`);
 
         if (widgetIndex < 0 || widgetIndex >= values.length) {
-          console.warn(
+          logger.warn(
             `[Optimizer Apply] Skipping ${change.widgetName}: index ${widgetIndex} out of bounds (array length ${values.length})`,
           );
           skippedChanges.push(`${change.nodeType}.${change.widgetName}: index out of bounds`);
@@ -988,7 +989,7 @@ export function WorkflowVisualizer({
         if (change.widgetType === 'COMBO' && change.validOptions && change.validOptions.length > 0) {
           const nextValue = String(change.newValue);
           if (!change.validOptions.includes(nextValue)) {
-            console.warn(
+            logger.warn(
               `[Optimizer Apply] Skipping ${change.widgetName}: "${nextValue}" not in COMBO options`,
             );
             skippedChanges.push(`${change.nodeType}.${change.widgetName}: invalid COMBO value`);
@@ -1005,14 +1006,14 @@ export function WorkflowVisualizer({
       return nextNode;
     });
 
-    console.log(`[Optimizer Apply] Applied: ${appliedChanges.length}, Skipped: ${skippedChanges.length}`);
+    logger.log(`[Optimizer Apply] Applied: ${appliedChanges.length}, Skipped: ${skippedChanges.length}`);
     if (skippedChanges.length > 0) {
-      console.warn('[Optimizer Apply] Skipped changes:', skippedChanges);
+      logger.warn('[Optimizer Apply] Skipped changes:', skippedChanges);
     }
 
     if (appliedChanges.length === 0) return;
 
-    console.log('[Optimizer Undo] Snapshot saved:', {
+    logger.log('[Optimizer Undo] Snapshot saved:', {
       nodeCount: snapshot.size,
       nodeIds: [...snapshot.keys()],
       sampleValues: snapshot.size > 0 ? snapshot.entries().next().value : 'empty',
@@ -1021,7 +1022,7 @@ export function WorkflowVisualizer({
     preOptimizationSnapshotRef.current = cloneOptimizationSnapshot(snapshot);
     persistedOptimizationSnapshot = cloneOptimizationSnapshot(snapshot);
     setPreOptimizationSnapshot(snapshot);
-    console.log('[Optimizer Undo] State set. preOptimizationSnapshot should be non-null now.');
+    logger.log('[Optimizer Undo] State set. preOptimizationSnapshot should be non-null now.');
     onWorkflowChange(
       { ...workflow, nodes: nextNodes },
       `Applied AI optimization (${appliedChanges.length} change${appliedChanges.length === 1 ? '' : 's'} across ${touchedNodeIds.size} node${touchedNodeIds.size === 1 ? '' : 's'})`,
@@ -1031,23 +1032,23 @@ export function WorkflowVisualizer({
 
   const handleUndoOptimization = useCallback(() => {
     const snapshot = preOptimizationSnapshot ?? preOptimizationSnapshotRef.current ?? persistedOptimizationSnapshot;
-    console.log('[Optimizer Undo] Undo clicked:', {
+    logger.log('[Optimizer Undo] Undo clicked:', {
       hasSnapshot: !!snapshot,
       snapshotSize: snapshot?.size ?? 0,
       currentNodeCount: workflow?.nodes?.length ?? 0,
     });
 
     if (!workflow || !onWorkflowChange || !snapshot || snapshot.size === 0) {
-      console.warn('[Optimizer Undo] No snapshot to restore!');
+      logger.warn('[Optimizer Undo] No snapshot to restore!');
       return;
     }
 
-    console.log('[Optimizer Undo] Restoring', snapshot.size, 'nodes');
+    logger.log('[Optimizer Undo] Restoring', snapshot.size, 'nodes');
 
     const restoredNodes = workflow.nodes.map((node) => {
       const originalWidgets = snapshot.get(String(node.id));
       if (!originalWidgets) return node;
-      console.log(
+      logger.log(
         `[Optimizer Undo] Restoring node ${node.id} (${node.type}):`,
         'from',
         node.widgets_values,
@@ -1064,7 +1065,7 @@ export function WorkflowVisualizer({
     setPreOptimizationSnapshot(null);
     preOptimizationSnapshotRef.current = null;
     persistedOptimizationSnapshot = null;
-    console.log('[Optimizer Undo] Restore complete, snapshot cleared');
+    logger.log('[Optimizer Undo] Restore complete, snapshot cleared');
   }, [workflow, onWorkflowChange, preOptimizationSnapshot]);
 
   useEffect(() => {
@@ -1105,7 +1106,7 @@ export function WorkflowVisualizer({
       const freshObjectInfo = await getObjectInfo(baseUrl, true);
       setObjectInfo(freshObjectInfo);
     } catch (error) {
-      console.warn('[ModelDownload] Failed to refresh /object_info snapshot:', error);
+      logger.warn('[ModelDownload] Failed to refresh /object_info snapshot:', error);
     }
   }, [comfyuiUrl]);
 
@@ -1156,7 +1157,7 @@ export function WorkflowVisualizer({
         return;
       }
 
-      console.log('[ModelDownload] Started:', model.filename, 'type:', model.type);
+      logger.log('[ModelDownload] Started:', model.filename, 'type:', model.type);
       const startedAt = Date.now();
       setMissingModels((prev) => prev.map((entry) => (
         getMissingModelKey(entry) === key
@@ -1173,7 +1174,7 @@ export function WorkflowVisualizer({
       )));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Download failed';
-      console.error('[ModelDownload] Failed to start:', model.filename, message);
+      logger.error('[ModelDownload] Failed to start:', model.filename, message);
       setMissingModels((prev) => prev.map((entry) => (
         getMissingModelKey(entry) === key
           ? {
@@ -1203,7 +1204,7 @@ export function WorkflowVisualizer({
 
         if (isInstalled) {
           clearModelPoller(key);
-          console.log('[ModelDownload] Complete:', model.filename);
+          logger.log('[ModelDownload] Complete:', model.filename);
           setMissingModels((prev) => prev.map((entry) => (
             getMissingModelKey(entry) === key
               ? { ...entry, downloadState: { status: 'complete' } }
@@ -1219,7 +1220,7 @@ export function WorkflowVisualizer({
           const queueCompleted = await service.checkManagerQueueCompleted();
           if (queueCompleted) {
             clearModelPoller(key);
-            console.warn(
+            logger.warn(
               '[ModelDownload] Download appears failed:',
               model.filename,
               `(stale ${Math.round(staleDuration / 1000)}s, queue empty)`,
@@ -1258,7 +1259,7 @@ export function WorkflowVisualizer({
           };
         }));
       } catch (error) {
-        console.warn('[ModelDownload] Poll error for', model.filename, error);
+        logger.warn('[ModelDownload] Poll error for', model.filename, error);
       }
     }, 5000);
 

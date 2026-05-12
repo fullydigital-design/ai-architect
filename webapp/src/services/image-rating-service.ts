@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 ﻿/**
  * AI Image Rating Service
  * Sends generated images to a vision-capable AI model for quality assessment.
@@ -220,8 +221,8 @@ export function parseRatingResponse(
   ratingMode?: RatingMode,
 ): RatingResult {
   try {
-    console.log('[ImageRating] Raw response length:', response.length);
-    console.log('[ImageRating] Raw response preview:', response.substring(0, 300));
+    logger.log('[ImageRating] Raw response length:', response.length);
+    logger.log('[ImageRating] Raw response preview:', response.substring(0, 300));
 
     const patterns = [
       /```json\s*\n([\s\S]*?)```/,
@@ -243,7 +244,7 @@ export function parseRatingResponse(
     }
 
     if (!jsonStr) {
-      console.error('[ImageRating] Could not find rating JSON in response:', response);
+      logger.error('[ImageRating] Could not find rating JSON in response:', response);
       return {
         ratings: [],
         bestVariant: '',
@@ -317,7 +318,7 @@ export function parseRatingResponse(
       success: true,
     };
   } catch (err: any) {
-    console.error('[ImageRating] Parse error:', err);
+    logger.error('[ImageRating] Parse error:', err);
     return {
       ratings: [],
       bestVariant: '',
@@ -343,7 +344,7 @@ export async function imageToBase64(imageUrl: string): Promise<string> {
       reader.readAsDataURL(blob);
     });
   } catch (err) {
-    console.warn('[ImageRating] Could not convert image to base64:', err);
+    logger.warn('[ImageRating] Could not convert image to base64:', err);
     return imageUrl;
   }
 }

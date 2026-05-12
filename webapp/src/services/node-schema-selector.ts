@@ -7,6 +7,7 @@ import {
   type LiveNodeSchema,
 } from './comfyui-backend';
 import type { CustomNodePackInfo } from '../data/custom-node-registry';
+import { logger } from '@/utils/logger';
 
 export type SchemaMode = 'full' | 'compact' | 'off';
 
@@ -358,12 +359,12 @@ export function createNodeSelectionState(
   if (matchedNodes.size !== requested.size) {
     const missing = [...requested].filter((classType) => !matchedNodes.has(classType));
     if (missing.length > 0) {
-      console.warn('[SchemaSelector] Requested nodes not found in classified packs:', missing);
+      logger.warn('[SchemaSelector] Requested nodes not found in classified packs:', missing);
     }
   }
 
   const selectedPackCount = Object.values(packsState).filter((packState) => packState.enabled).length;
-  console.log(
+  logger.log(
     `[SchemaSelector] Auto-selecting ${matchedNodes.size} nodes from ${selectedPackCount} packs`,
   );
 

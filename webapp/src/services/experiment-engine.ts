@@ -9,6 +9,7 @@ import type { ComfyUIWorkflow } from '../types/comfyui';
 import { executeWorkflow, type ExecutionResult, type ExecutionImage, type ProgressCallback } from './comfyui-execution';
 import { getLiveNodeSchema } from './comfyui-backend';
 import { NODE_REGISTRY } from '../data/node-registry';
+import { logger } from '@/utils/logger';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -442,8 +443,8 @@ export function runExperiment(
 export function parseOptimizerResponse(response: string): OptimizationResult {
   try {
     // Log raw response for debugging
-    console.log('[Optimizer] Raw AI response length:', response.length);
-    console.log('[Optimizer] Raw AI response preview:', response.substring(0, 500));
+    logger.log('[Optimizer] Raw AI response length:', response.length);
+    logger.log('[Optimizer] Raw AI response preview:', response.substring(0, 500));
 
     // Try multiple patterns to find the workflow JSON, from most specific to least
     const patterns = [
@@ -472,8 +473,8 @@ export function parseOptimizerResponse(response: string): OptimizationResult {
           );
           if (isApiFormat || isGraphFormat) {
             workflowJson = match[1].trim();
-            console.log('[Optimizer] Found workflow JSON via pattern:', pattern.source.substring(0, 40));
-            console.log('[Optimizer] Detected format:', isApiFormat ? 'API' : 'Graph');
+            logger.log('[Optimizer] Found workflow JSON via pattern:', pattern.source.substring(0, 40));
+            logger.log('[Optimizer] Detected format:', isApiFormat ? 'API' : 'Graph');
             break;
           }
         } catch {
@@ -495,7 +496,7 @@ export function parseOptimizerResponse(response: string): OptimizationResult {
             const looksLikeGraph = Array.isArray(parsed.nodes) && parsed.nodes.length > 0;
             if (keys.length >= 2 && (looksLikeApi || looksLikeGraph)) {
               workflowJson = candidate;
-              console.log('[Optimizer] Found workflow JSON via raw object scan');
+              logger.log('[Optimizer] Found workflow JSON via raw object scan');
               break;
             }
           } catch {
@@ -506,7 +507,7 @@ export function parseOptimizerResponse(response: string): OptimizationResult {
     }
 
     if (!workflowJson) {
-      console.error('[Optimizer] Could not find workflow JSON. Full response:', response);
+      logger.error('[Optimizer] Could not find workflow JSON. Full response:', response);
       return {
         optimizedWorkflow: null,
         changesDescription: response,
@@ -551,7 +552,7 @@ export function parseOptimizerResponse(response: string): OptimizationResult {
       success: true,
     };
   } catch (err: any) {
-    console.error('[Optimizer] Parse error:', err, '\nResponse:', response);
+    logger.error('[Optimizer] Parse error:', err, '\nResponse:', response);
     return {
       optimizedWorkflow: null,
       changesDescription: '',

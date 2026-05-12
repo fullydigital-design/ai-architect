@@ -8,6 +8,7 @@ import { NODE_REGISTRY } from '../data/node-registry';
 import { CONNECTION_TYPES } from '../data/core-nodes';
 import { getLiveNodeCache, validateModelReferences } from './comfyui-backend';
 import { getWidgetOrder } from './node-schema-filter';
+import { logger } from '@/utils/logger';
 
 type ComfyInputSpec = [string | string[], Record<string, unknown>?];
 type APIWorkflowNode = {
@@ -506,7 +507,7 @@ export function validateWorkflowAgainstSchema(
           severity: 'warning',
           message: `Widget values stale from previous node type (${node.widgets_values.length} values, expected ${widgetCountExpectation.baseCount}${widgetCountExpectation.companionCount > 0 ? ` or ${widgetCountExpectation.withCompanions} with companions` : ''}). Re-apply node replacement or fix widget values.`,
         });
-        console.log(
+        logger.log(
           `[Validator] Widget mismatch for ${nodeType} (node ${nodeId}): ` +
           `values count ${node.widgets_values.length} !== expected ${widgetCountExpectation.baseCount}`
           + `${widgetCountExpectation.companionCount > 0 ? ` (or ${widgetCountExpectation.withCompanions} with companions)` : ''}`,
@@ -750,7 +751,7 @@ export function validateWorkflow(workflow: ComfyUIWorkflow): LegacyValidationRes
         nodeId: node.id,
         details: `Widget values stale from previous node type (${node.widgets_values.length} values, expected ${widgetCountExpectation.baseCount}${widgetCountExpectation.companionCount > 0 ? ` or ${widgetCountExpectation.withCompanions} with companions` : ''}) on ${node.type}. Re-apply node replacement or fix widget values.`,
       });
-      console.debug(
+      logger.debug(
         `[Validator] Widget mismatch for ${node.type} (node ${node.id}): ` +
         `values count ${node.widgets_values.length} !== expected ${widgetCountExpectation.baseCount}`
         + `${widgetCountExpectation.companionCount > 0 ? ` (or ${widgetCountExpectation.withCompanions} with companions)` : ''}`,

@@ -2,6 +2,7 @@ import type { ComfyUIWorkflow, ComfyUINode } from '../types/comfyui';
 import { lookupModel } from '../data/known-models-db';
 import { getCurrentWidgetValues, resolveNodeSchema } from './node-schema-resolver';
 import { resolveComfyUIBaseUrl } from './api-config';
+import { logger } from '@/utils/logger';
 import {
   getModelList,
   getKnownGatedModel,
@@ -329,7 +330,7 @@ export class ModelDownloadService {
     });
 
     if (output.length > 0) {
-      console.debug(
+      logger.debug(
         '[ModelDownload] Missing models:',
         output.map((model) => `${model.type}:${model.filename}`),
       );
@@ -342,9 +343,9 @@ export class ModelDownloadService {
     if (!this.managerModels) {
       try {
         this.managerModels = await getModelList(this.comfyuiUrl);
-        console.log('[ModelDownload] Manager registry loaded:', this.managerModels.length, 'models');
+        logger.log('[ModelDownload] Manager registry loaded:', this.managerModels.length, 'models');
       } catch (error) {
-        console.warn('[ModelDownload] Could not load manager model registry:', error);
+        logger.warn('[ModelDownload] Could not load manager model registry:', error);
         this.managerModels = [];
       }
     }

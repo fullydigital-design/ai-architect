@@ -91,7 +91,7 @@ export const WorkflowRequirementsPanel = memo(function WorkflowRequirementsPanel
     const types = source
       .map((n: any) => n?.class_type || n?.type)
       .filter((t: unknown): t is string => typeof t === 'string' && t.trim().length > 0)
-      .sort((a, b) => a.localeCompare(b));
+      .sort((a: string, b: string) => a.localeCompare(b));
     return types.join(',');
   }, [workflow]);
 
@@ -118,7 +118,7 @@ export const WorkflowRequirementsPanel = memo(function WorkflowRequirementsPanel
     }
     let cancelled = false;
     const minimalWorkflow = {
-      nodes: workflowNodeKey.split(',').map((type) => ({ type })),
+      nodes: workflowNodeKey.split(',').map((type: string) => ({ type })),
     };
 
     detectMissingPacks(baseUrl, minimalWorkflow, {

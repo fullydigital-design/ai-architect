@@ -179,7 +179,7 @@ export interface APIKeys {
   google: string;
   openrouter: string;
   /** LM Studio local server base URL (not an API key — no auth required) */
-  lmstudio: string;
+  lmstudio?: string;
 }
 
 export interface CustomModel {

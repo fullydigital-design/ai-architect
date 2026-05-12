@@ -1,4 +1,5 @@
 import { resolveComfyUIBaseUrl } from './api-config';
+import { logger } from '@/utils/logger';
 
 let cachedResponse: Record<string, any> | null = null;
 let cachedBaseUrl: string | null = null;
@@ -32,7 +33,7 @@ export async function getObjectInfo(
   }
 
   pendingBaseUrl = baseUrl;
-  console.log('[Scanner] Fetching /object_info...');
+  logger.log('[Scanner] Fetching /object_info...');
   pendingRequest = fetch(`${baseUrl}/object_info`, {
     signal: AbortSignal.timeout(30000),
   })

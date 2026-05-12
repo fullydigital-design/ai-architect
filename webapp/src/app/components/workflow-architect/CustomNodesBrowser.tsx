@@ -32,6 +32,7 @@ import {
   type CustomNodePackInfo,
 } from '../../../data/custom-node-registry';
 import { copyToClipboard } from '../../../utils/comfyui-export';
+import { logger } from '@/utils/logger';
 
 // ---- Types -----------------------------------------------------------------
 
@@ -112,10 +113,10 @@ export function CustomNodesBrowser({
     try {
       if (forceRefresh) clearRegistryCache();
       const data = await fetchCustomNodeRegistry({ comfyuiUrl });
-      console.log(`[Browse] Loaded ${data.length} pack(s)`);
+      logger.log(`[Browse] Loaded ${data.length} pack(s)`);
       setPacks(data);
     } catch (err: any) {
-      console.error('Failed to load custom node registry:', err);
+      logger.error('Failed to load custom node registry:', err);
       setError(err.message || 'Failed to fetch custom node list from ComfyUI-Manager repository.');
     } finally {
       setLoading(false);

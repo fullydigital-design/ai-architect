@@ -1,4 +1,5 @@
 import { detectMixedContent, resolveComfyUrl } from './comfyui-backend';
+import { logger } from '@/utils/logger';
 
 export interface ComfyUIWorkflowFile {
   /** Filename relative to workflows/ (for example "my-workflow.json" or "portraits/face-fix.json") */
@@ -42,7 +43,7 @@ export async function listComfyUIWorkflows(baseUrl: string): Promise<ComfyUIWork
 
   if (!response.ok) {
     if (response.status === 404) {
-      console.warn('[ComfyUIWorkflowSync] Userdata workflow API not available (ComfyUI too old?)');
+      logger.warn('[ComfyUIWorkflowSync] Userdata workflow API not available (ComfyUI too old?)');
       return [];
     }
     throw new Error(`Failed to list workflows: HTTP ${response.status}`);

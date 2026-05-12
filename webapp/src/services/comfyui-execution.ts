@@ -12,6 +12,7 @@ import { convertGraphToAPI, detectMixedContent, getLiveNodeCache, resolveComfyUr
 import { NODE_REGISTRY } from '../data/node-registry';
 import { getComfyUIWebSocketUrl } from './api-config';
 import { validateWorkflowPipeline, type PipelineValidationResult } from './workflow-validator';
+import { logger } from '@/utils/logger';
 
 const FRONTEND_ONLY_NODE_TYPES = new Set([
   'Note',
@@ -96,11 +97,11 @@ export async function queuePrompt(
     client_id: clientId,
   };
 
-  console.log('[Prompt Debug] Payload being sent:', JSON.stringify(payload, null, 2));
+  logger.log('[Prompt Debug] Payload being sent:', JSON.stringify(payload, null, 2));
 
   const validationErrors = validatePromptPayload(apiWorkflow);
   if (validationErrors.length > 0) {
-    console.error('[Prompt Debug] Local prompt validation failed:', validationErrors);
+    logger.error('[Prompt Debug] Local prompt validation failed:', validationErrors);
     throw new Error(`Prompt payload validation failed: ${validationErrors.join('; ')}`);
   }
 
@@ -121,9 +122,9 @@ export async function queuePrompt(
     }
 
     if (errorData) {
-      console.error('[Prompt Debug] ComfyUI rejected prompt:', JSON.stringify(errorData, null, 2));
+      logger.error('[Prompt Debug] ComfyUI rejected prompt:', JSON.stringify(errorData, null, 2));
     } else {
-      console.error('[Prompt Debug] ComfyUI rejected prompt:', errorText || `(no response body, HTTP ${response.status})`);
+      logger.error('[Prompt Debug] ComfyUI rejected prompt:', errorText || `(no response body, HTTP ${response.status})`);
     }
 
     const nodeErrorMessage = errorData?.node_errors ? formatNodeErrors(errorData.node_errors) : '';
@@ -540,7 +541,7 @@ function validatePromptPayload(prompt: Record<string, any>): string[] {
   }
 
   if (warnings.length > 0) {
-    console.warn('[Prompt Validate] Potential payload issues:', warnings);
+    logger.warn('[Prompt Validate] Potential payload issues:', warnings);
   }
 
   return errors;
@@ -562,7 +563,7 @@ function stripFrontendOnlyNodes(prompt: Record<string, any>): Record<string, any
     if (!classType) continue;
 
     if (FRONTEND_ONLY_NODE_TYPES.has(classType)) {
-      console.debug(`[Prompt] Stripped frontend-only node "${classType}" (ID: ${id})`);
+      logger.debug(`[Prompt] Stripped frontend-only node "${classType}" (ID: ${id})`);
       strippedCount += 1;
       continue;
     }
@@ -571,7 +572,7 @@ function stripFrontendOnlyNodes(prompt: Record<string, any>): Record<string, any
   }
 
   if (strippedCount > 0) {
-    console.info(`[Prompt] Stripped ${strippedCount} frontend-only node(s) from payload`);
+    logger.info(`[Prompt] Stripped ${strippedCount} frontend-only node(s) from payload`);
   }
 
   return cleaned;

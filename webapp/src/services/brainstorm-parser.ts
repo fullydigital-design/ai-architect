@@ -1,4 +1,5 @@
 import { getLiveNodeSchema } from './comfyui-backend';
+import { logger } from '@/utils/logger';
 
 export interface RecommendedNode {
   class_type: string;
@@ -68,7 +69,7 @@ export function parseRecommendedNodes(aiResponse: string): WorkflowRecommendatio
     const parsed = JSON.parse(match[1].trim()) as unknown;
     return validateAndNormalizeRecommendation(parsed);
   } catch (error) {
-    console.warn('[BrainstormParser] Failed to parse recommended-nodes JSON:', error);
+    logger.warn('[BrainstormParser] Failed to parse recommended-nodes JSON:', error);
     return null;
   }
 }
@@ -82,7 +83,7 @@ function validateAndNormalizeRecommendation(parsed: unknown): WorkflowRecommenda
   };
 
   if (!Array.isArray(source.nodes) || source.nodes.length === 0) {
-    console.warn('[BrainstormParser] recommended-nodes block has no nodes');
+    logger.warn('[BrainstormParser] recommended-nodes block has no nodes');
     return null;
   }
 
@@ -101,7 +102,7 @@ function validateAndNormalizeRecommendation(parsed: unknown): WorkflowRecommenda
     }));
 
   if (validNodes.length === 0) {
-    console.warn('[BrainstormParser] No valid nodes in recommendation block');
+    logger.warn('[BrainstormParser] No valid nodes in recommendation block');
     return null;
   }
 
@@ -112,7 +113,7 @@ function validateAndNormalizeRecommendation(parsed: unknown): WorkflowRecommenda
     ? source.workflow_summary.trim()
     : '';
 
-  console.log(`[BrainstormParser] Parsed ${validNodes.length} recommended nodes for "${workflowTitle}"`);
+  logger.log(`[BrainstormParser] Parsed ${validNodes.length} recommended nodes for "${workflowTitle}"`);
 
   return {
     workflow_title: workflowTitle,

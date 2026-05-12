@@ -7,6 +7,7 @@
 
 import { getLiveNodeCache, getLiveNodeSchema } from './comfyui-backend';
 import { NODE_REGISTRY } from '../data/node-registry';
+import { logger } from '@/utils/logger';
 import type {
   ModificationResult,
   OpAddNode,
@@ -602,7 +603,7 @@ function applyConnect(op: OpConnect, workflow: any, objectInfo: Record<string, a
       const schemaOutputs = buildUIOutputs(sourceSchema);
       if (schemaOutputs.length > 0) {
         source.outputs = schemaOutputs;
-        console.log(`[Modifier] Populated ${source.outputs.length} outputs for ${source.type} #${source.id} from schema`);
+        logger.log(`[Modifier] Populated ${source.outputs.length} outputs for ${source.type} #${source.id} from schema`);
       }
     }
 

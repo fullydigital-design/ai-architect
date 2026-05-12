@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { logger } from '@/utils/logger';
 import {
   deleteHistoryEntries,
   fetchGalleryImages,
@@ -120,7 +121,7 @@ export function ImageGallery({ comfyuiUrl, onLoadWorkflow, sessionPromptIds }: I
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch gallery images';
       setGalleryError(message);
-      console.error('[Gallery] Failed to fetch images:', err);
+      logger.error('[Gallery] Failed to fetch images:', err);
     } finally {
       setGalleryLoading(false);
     }

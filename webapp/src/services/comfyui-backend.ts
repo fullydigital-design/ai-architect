@@ -13,6 +13,7 @@ import type { NodeInput, NodeOutput, ComfyUIWorkflow } from '../types/comfyui';
 import { NODE_REGISTRY } from '../data/node-registry';
 import { getCachedObjectInfo, getObjectInfo } from './comfyui-object-info-cache';
 import { resolveComfyUIBaseUrl } from './api-config';
+import { logger } from '@/utils/logger';
 
 // Frontend-only LiteGraph nodes that do not exist as backend class_type handlers.
 const FRONTEND_ONLY_NODE_TYPES = new Set([
@@ -422,7 +423,7 @@ export async function fetchAndCacheObjectInfo(url: string): Promise<LiveNodeCach
     const cacheToStore = { ...cache, nodes: stripComboOptions(cache.nodes) };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cacheToStore));
   } catch (e) {
-    console.warn('Failed to cache live node schemas (localStorage full?):', e);
+    logger.warn('Failed to cache live node schemas (localStorage full?):', e);
   }
 
   return cache;
@@ -1034,7 +1035,7 @@ export function buildSchemaDrawerSection(
   const shouldLog = options.log !== false;
   if (options.mode === 'off') {
     if (shouldLog) {
-      console.log('[SchemaDrawer] Injected 0 node schemas from 0 packs (mode=off)');
+      logger.log('[SchemaDrawer] Injected 0 node schemas from 0 packs (mode=off)');
     }
     return '';
   }
@@ -1042,7 +1043,7 @@ export function buildSchemaDrawerSection(
   const entries = Object.entries(selectedNodes || {});
   if (entries.length === 0) {
     if (shouldLog) {
-      console.log('[SchemaDrawer] Injected 0 node schemas from 0 packs (empty selection)');
+      logger.log('[SchemaDrawer] Injected 0 node schemas from 0 packs (empty selection)');
     }
     return '';
   }
@@ -1073,7 +1074,7 @@ export function buildSchemaDrawerSection(
 
   const approxTokens = Math.ceil(section.length / 4);
   if (shouldLog) {
-    console.log(
+    logger.log(
       `[SchemaDrawer] Injected ${totalNodes} node schemas from ${sortedGroups.length} packs (${section.length} chars, ~${approxTokens} tokens, mode=${options.mode})`,
     );
   }
@@ -1676,7 +1677,7 @@ export function convertGraphToAPI(workflow: ComfyUIWorkflow): Record<string, any
           const inputDef = nodeInputDefs[idx];
           inputs[inputDef?.name || `widget_${idx}`] = val;
         });
-        console.log(`[WidgetMap] ${node.type}: no exact schema, positional fallback with ${node.widgets_values.length} values`);
+        logger.log(`[WidgetMap] ${node.type}: no exact schema, positional fallback with ${node.widgets_values.length} values`);
       } else {
         const valueCount = node.widgets_values.length;
         const matchesBaseCount = expectedWidgetValueCount > 0 && valueCount === expectedWidgetValueCount;
@@ -1684,7 +1685,7 @@ export function convertGraphToAPI(workflow: ComfyUIWorkflow): Record<string, any
           && valueCount === expectedWidgetValueCountWithCompanions;
 
         if (expectedWidgetValueCount > 0 && !matchesBaseCount && !matchesCompanionCount) {
-          console.warn(
+          logger.warn(
             `[WidgetMap] ${node.type} (node ${node.id}): values count ${valueCount} `
             + `!== expected ${expectedWidgetValueCount}`
             + `${widgetCountExpectation.companionCount > 0 ? ` (or ${expectedWidgetValueCountWithCompanions} with companions)` : ''} `
@@ -1698,7 +1699,7 @@ export function convertGraphToAPI(workflow: ComfyUIWorkflow): Record<string, any
           applyRequiredWidgetDefaults(widgetInputs, inputs);
         } else {
           if (matchesCompanionCount) {
-            console.debug(
+            logger.debug(
               `[WidgetMap] ${node.type} (node ${node.id}): ${widgetCountExpectation.companionCount} companion widget(s) detected, mapping normally`,
             );
           }
@@ -1868,7 +1869,7 @@ function mapWidgetValuesFromRawObjectInfo(
     }
   }
 
-  console.log(
+  logger.log(
     `[WidgetMap] ${classType}: values=[${widgetValues.map((v) => JSON.stringify(v)).join(', ')}] -> mapped=${JSON.stringify(mapped)}`,
   );
 

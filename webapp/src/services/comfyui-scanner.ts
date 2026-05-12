@@ -1,5 +1,6 @@
 import { getObjectInfo } from './comfyui-object-info-cache';
 import { getComfyUIBaseUrl, resolveComfyUIBaseUrl } from './api-config';
+import { logger } from '@/utils/logger';
 
 export interface InstalledEnvironment {
   checkpoints: string[];
@@ -110,7 +111,7 @@ export async function fetchInstalledEnvironment(comfyuiUrl = getComfyUIBaseUrl()
     const baseUrl = resolveComfyUIBaseUrl(comfyuiUrl);
     const data = await getObjectInfo(baseUrl);
     if (!data || typeof data !== 'object') {
-      console.warn('[Scanner] /object_info returned non-object data');
+      logger.warn('[Scanner] /object_info returned non-object data');
       return createEmptyEnvironment();
     }
 
@@ -143,7 +144,7 @@ export async function fetchInstalledEnvironment(comfyuiUrl = getComfyUIBaseUrl()
     };
     return env;
   } catch (error) {
-    console.warn('[Scanner] Failed to fetch installed environment:', error);
+    logger.warn('[Scanner] Failed to fetch installed environment:', error);
     return createEmptyEnvironment();
   }
 }

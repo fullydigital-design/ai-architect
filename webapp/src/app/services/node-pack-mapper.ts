@@ -1,6 +1,7 @@
 import { getComfyUIBaseUrl } from '../../services/api-config';
 import { getObjectInfo } from '../../services/comfyui-object-info-cache';
 import { getManagerNodeList, type ManagerNode } from './comfyui-manager-service';
+import { logger } from '@/utils/logger';
 
 export interface PackInfo {
   id: string;
@@ -153,7 +154,7 @@ async function fetchMappings(apiBase: string): Promise<Record<string, unknown> |
 
     return null;
   } catch (error) {
-    console.warn('[NodePackMapper] Failed to fetch mappings:', error);
+    logger.warn('[NodePackMapper] Failed to fetch mappings:', error);
     return null;
   }
 }
@@ -163,7 +164,7 @@ async function fetchObjectInfo(apiBase: string): Promise<Record<string, unknown>
     const objectInfo = await getObjectInfo(apiBase);
     return objectInfo as Record<string, unknown>;
   } catch (error) {
-    console.warn('[NodePackMapper] Failed to fetch object_info:', error);
+    logger.warn('[NodePackMapper] Failed to fetch object_info:', error);
     return null;
   }
 }
@@ -232,7 +233,7 @@ async function buildMapping(apiBase: string): Promise<NodeToPackMapping> {
     builtAt: Date.now(),
   };
 
-  console.log(
+  logger.log(
     `[NodePackMapper] Built mapping: ${mapping.nodeClassToPack.size} node classes -> packs, ${mapping.builtinNodes.size} built-in nodes, ${mapping.packToNodeClasses.size} packs`,
   );
 

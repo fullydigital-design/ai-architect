@@ -9,14 +9,19 @@ interface GradientButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   fullWidth?: boolean;
 }
 
-export function GradientButton({ 
-  children, 
-  variant = 'primary', 
-  size = 'md', 
+export function GradientButton({
+  children,
+  variant = 'primary',
+  size = 'md',
   icon,
   fullWidth = false,
   className = '',
-  ...props 
+  onDrag: _onDrag,
+  onDragStart: _onDragStart,
+  onDragEnd: _onDragEnd,
+  onAnimationStart: _onAnimationStart,
+  onAnimationEnd: _onAnimationEnd,
+  ...props
 }: GradientButtonProps) {
   const gradients = {
     primary: 'from-fuchsia-600 via-purple-600 to-pink-600 hover:from-fuchsia-700 hover:via-purple-700 hover:to-pink-700',

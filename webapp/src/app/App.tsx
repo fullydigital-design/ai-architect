@@ -125,6 +125,7 @@ import { ValidationSettingsDropdown } from './components/validation-report/Valid
 import { ModificationReportPanel } from './components/modification-report/ModificationReportPanel';
 import { ValidationPanel } from './components/workflow-architect/ValidationPanel';
 import CommandCenter from './components/CommandCenter';
+import { logger } from '@/utils/logger';
 
 const MAX_SELF_CORRECTION_RETRIES = 2;
 const EMPTY_DETECTED_PACKS: DetectedPack[] = [];
@@ -215,16 +216,16 @@ function getMaxLinkId(workflow: ComfyUIWorkflow): number {
 
 function logModifyContextDiagnosis(workflow: ComfyUIWorkflow, systemPromptOverride?: string): void {
   const nodeIds = (workflow.nodes || []).map((node) => `${node.id}:${node.type}`).join(', ');
-  console.log('[Modify] === MODIFICATION CONTEXT DIAGNOSIS ===');
-  console.log('[Modify] Current workflow nodes:', workflow.nodes.length);
-  console.log('[Modify] Current workflow links:', workflow.links.length);
-  console.log('[Modify] Node IDs:', nodeIds);
-  console.log('[Modify] Max node ID:', getMaxNodeId(workflow));
-  console.log('[Modify] Max link ID:', getMaxLinkId(workflow));
-  console.log('[Modify] System prompt length:', systemPromptOverride?.length, 'chars');
+  logger.log('[Modify] === MODIFICATION CONTEXT DIAGNOSIS ===');
+  logger.log('[Modify] Current workflow nodes:', workflow.nodes.length);
+  logger.log('[Modify] Current workflow links:', workflow.links.length);
+  logger.log('[Modify] Node IDs:', nodeIds);
+  logger.log('[Modify] Max node ID:', getMaxNodeId(workflow));
+  logger.log('[Modify] Max link ID:', getMaxLinkId(workflow));
+  logger.log('[Modify] System prompt length:', systemPromptOverride?.length, 'chars');
   const modifySection = systemPromptOverride?.indexOf('## CURRENT WORKFLOW') ?? -1;
   if (modifySection > -1) {
-    console.log(
+    logger.log(
       '[Modify] Modification section preview:',
       systemPromptOverride?.substring(modifySection, modifySection + 500),
     );
@@ -244,14 +245,14 @@ function logPostModificationDiagnosis(
   const removed = [...oldIds].filter((id) => !newIds.has(id));
   const added = [...newIds].filter((id) => !oldIds.has(id));
 
-  console.log('[Modify] === POST-MODIFICATION DIAGNOSIS ===');
-  console.log('[Modify] Original nodes:', oldIds.size, '-> New nodes:', newIds.size);
+  logger.log('[Modify] === POST-MODIFICATION DIAGNOSIS ===');
+  logger.log('[Modify] Original nodes:', oldIds.size, '-> New nodes:', newIds.size);
 
   const preserveRate = oldIds.size > 0 ? preserved.length / oldIds.size : 1;
   const preservePercent = Math.round(preserveRate * 100);
-  console.log('[Modify] Preserved node IDs:', preserved.length, '/', oldIds.size, `(${preservePercent}%)`);
-  console.log('[Modify] Removed nodes:', removed);
-  console.log('[Modify] Added nodes:', added);
+  logger.log('[Modify] Preserved node IDs:', preserved.length, '/', oldIds.size, `(${preservePercent}%)`);
+  logger.log('[Modify] Removed nodes:', removed);
+  logger.log('[Modify] Added nodes:', added);
 
   let widgetChanges = 0;
   for (const id of preserved) {
@@ -260,13 +261,13 @@ function logPostModificationDiagnosis(
     if (!oldNode || !newNode) continue;
     if (JSON.stringify(oldNode.widgets_values) !== JSON.stringify(newNode.widgets_values)) {
       widgetChanges += 1;
-      console.log(`[Modify] Widget values changed on node ${id} (${oldNode.type})`);
+      logger.log(`[Modify] Widget values changed on node ${id} (${oldNode.type})`);
     }
     if (oldNode.type !== newNode.type) {
-      console.log(`[Modify] NODE TYPE CHANGED: ${id} was ${oldNode.type} -> now ${newNode.type}`);
+      logger.log(`[Modify] NODE TYPE CHANGED: ${id} was ${oldNode.type} -> now ${newNode.type}`);
     }
   }
-  console.log('[Modify] Nodes with widget changes:', widgetChanges, '/', preserved.length);
+  logger.log('[Modify] Nodes with widget changes:', widgetChanges, '/', preserved.length);
 
   let positionDrifts = 0;
   for (const id of preserved) {
@@ -277,14 +278,14 @@ function logPostModificationDiagnosis(
     const dy = Math.abs((oldNode.pos?.[1] || 0) - (newNode.pos?.[1] || 0));
     if (dx > 10 || dy > 10) positionDrifts += 1;
   }
-  console.log('[Modify] Nodes with position drift:', positionDrifts, '/', preserved.length);
+  logger.log('[Modify] Nodes with position drift:', positionDrifts, '/', preserved.length);
 
   if (preserveRate < 0.5) {
-    console.warn('[Modify] AI REWROTE MOST OF THE WORKFLOW - preserve rate below 50%');
+    logger.warn('[Modify] AI REWROTE MOST OF THE WORKFLOW - preserve rate below 50%');
   } else if (preserveRate < 0.8) {
-    console.warn('[Modify] AI changed more than expected - preserve rate', `${preservePercent}%`);
+    logger.warn('[Modify] AI changed more than expected - preserve rate', `${preservePercent}%`);
   } else {
-    console.log('[Modify] Good preservation rate:', `${preservePercent}%`);
+    logger.log('[Modify] Good preservation rate:', `${preservePercent}%`);
   }
 
   return {
@@ -456,7 +457,7 @@ export default function App() {
       localStorage.removeItem('comfyui-manager-node-list');
       localStorage.removeItem('comfyui-manager-node-map');
       localStorage.setItem(migrationKey, 'done');
-      console.log('[Migration] Cleared stale ComfyUI caches for Python 3.12 migration');
+      logger.log('[Migration] Cleared stale ComfyUI caches for Python 3.12 migration');
     }
   }, []);
 
@@ -1060,7 +1061,7 @@ export default function App() {
 
     // Tier 1: full → compact
     if (liveSchemaMode === 'full' && Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
-      console.warn(
+      logger.warn(
         `[SchemaDrawer] Tier 1: full→compact (~${Math.ceil(section.length / 4)} tokens > ${SCHEMA_TOKEN_HARD_CAP} cap)`,
       );
       liveSchemaMode = 'compact';
@@ -1080,7 +1081,7 @@ export default function App() {
           return !packTitle || !coreTitles.has(packTitle);
         }),
       );
-      console.warn(
+      logger.warn(
         `[SchemaDrawer] Tier 2: trimmed to ${Object.keys(customOnly).length} custom-pack nodes (dropped ${Object.keys(selectedNodeMap).length - Object.keys(customOnly).length} core nodes)`,
       );
       section = buildSchemaDrawerSection(customOnly, {
@@ -1092,7 +1093,7 @@ export default function App() {
 
     // Tier 3: still over cap → skip entirely with a brief notice
     if (Math.ceil(section.length / 4) > SCHEMA_TOKEN_HARD_CAP) {
-      console.warn(
+      logger.warn(
         `[SchemaDrawer] Tier 3: skipping schema injection (${Object.keys(selectedNodeMap).length} nodes still too large)`,
       );
       section = `\n## Live Node Schemas\n\n> Schema injection skipped: ${Object.keys(selectedNodeMap).length} nodes selected exceeds context budget. Reduce selection in the Schema Drawer.\n`;
@@ -1135,7 +1136,7 @@ export default function App() {
       currentWorkflowNodeTypes,
     )}`;
 
-    console.log('[SystemPrompt] Building with schema selection:', {
+    logger.log('[SystemPrompt] Building with schema selection:', {
       checkedPacks: [...schemaSelectedPackIds],
       mode: schemaSelectorState.mode,
       pinnedPacks: nodeLibrary.pinnedPacks.map((pack) => pack.title),
@@ -1155,7 +1156,7 @@ export default function App() {
       useLibraryReferences,
     );
     const finalPrompt = `${basePrompt}\n\n${getTypeSystemCheatSheet()}\n\n${getWorkflowPatterns()}`;
-    console.log(
+    logger.log(
       '[SystemPrompt] Final prompt length:',
       finalPrompt.length,
       'chars, ~',
@@ -1356,7 +1357,7 @@ ${getModificationExamples()}
       workflow = resolveOverlaps(workflow);
       const { sanitized, fixes } = sanitizeWorkflow(workflow);
       if (fixes.length > 0) {
-        console.log('[Sanitizer] Auto-fixed:', fixes);
+        logger.log('[Sanitizer] Auto-fixed:', fixes);
       }
       workflow = sanitized;
     }
@@ -1439,7 +1440,7 @@ ${getModificationExamples()}
           break;
         }
       } catch (err) {
-        console.error('Self-correction attempt failed:', err);
+        logger.error('Self-correction attempt failed:', err);
         break;
       }
     }
@@ -1502,7 +1503,7 @@ ${getModificationExamples()}
       if (useOperationModify && conversationHistory.length > 7) {
         const currentMsg = conversationHistory[conversationHistory.length - 1];
         const trimmed = conversationHistory.slice(0, -1).slice(-6);
-        console.log(
+        logger.log(
           `[Modify] Trimmed history: ${conversationHistory.length - 1} → ${trimmed.length} messages (kept last 3 exchanges)`,
         );
         conversationHistory = [...trimmed, currentMsg];
@@ -1576,7 +1577,7 @@ ${getModificationExamples()}
       let requiredNodesFromResponse = parsed.requiredNodes;
       let skipMergeWithOriginal = false;
       if (parsed.conversionWarnings && parsed.conversionWarnings.length > 0) {
-        console.warn('[API->Graph] Conversion warnings:', parsed.conversionWarnings);
+        logger.warn('[API->Graph] Conversion warnings:', parsed.conversionWarnings);
       }
       const unknownSchemaCount = parsed.unknownNodes?.length ?? 0;
       if (unknownSchemaCount > 0) {
@@ -1589,13 +1590,14 @@ ${getModificationExamples()}
         const { operations, parseErrors } = parseOperationsFromAIOutput(finalResponse);
 
         if (operations.length === 0) {
-          console.warn('[Modify] No operations found; trying full-workflow fallback parse.');
+          logger.warn('[Modify] No operations found; trying full-workflow fallback parse.');
           const fallbackParsed = parseAIResponse(finalResponse);
           let fallbackWorkflow = fallbackParsed.workflow || responseWorkflow;
           if (fallbackParsed.requiredNodes.length > 0) {
             requiredNodesFromResponse = fallbackParsed.requiredNodes;
           }
           if (fallbackParsed.workflow) {
+            fallbackWorkflow = fallbackParsed.workflow;
             const allZero = fallbackWorkflow.nodes.every((node) => node.pos[0] === 0 && node.pos[1] === 0);
             if (allZero) {
               fallbackWorkflow = autoLayoutWorkflow(fallbackWorkflow);
@@ -1630,7 +1632,7 @@ ${getModificationExamples()}
                 const orig = origMap.get(n.id)!;
                 return `${orig.type}→${n.type}`;
               }).join(', ');
-              console.warn(`[Modify] Fallback rejected: ${typeChanges.length} node type(s) changed (${changed}). AI likely ignored preservation rules due to context overflow.`);
+              logger.warn(`[Modify] Fallback rejected: ${typeChanges.length} node type(s) changed (${changed}). AI likely ignored preservation rules due to context overflow.`);
               toast.error(`Modification failed: AI rewrote ${typeChanges.length} node type(s) instead of modifying the workflow. Try shortening the conversation or retrying.`);
               const assistantMessage: Message = {
                 id: generateId(),
@@ -1644,7 +1646,7 @@ ${getModificationExamples()}
 
             if (isFreshWorkflow && fallbackWorkflow) {
               // Case B: clean fresh workflow — apply directly, skip merge with original
-              console.log(`[Modify] Fallback is a fresh workflow (max IDs: orig=${origMaxId}, new=${fallbackMaxId}), applying as replacement.`);
+              logger.log(`[Modify] Fallback is a fresh workflow (max IDs: orig=${origMaxId}, new=${fallbackMaxId}), applying as replacement.`);
               toast.info('Applied AI-generated workflow (full replacement).');
               responseWorkflow = fallbackWorkflow;
               skipMergeWithOriginal = true;
@@ -1726,26 +1728,26 @@ ${getModificationExamples()}
         logPostModificationDiagnosis(beforeWorkflow, resultWorkflow);
 
         if (detectIdRewrite(beforeWorkflow, resultWorkflow)) {
-          console.warn('[Modify] AI rewrote node IDs - attempting recovery...');
+          logger.warn('[Modify] AI rewrote node IDs - attempting recovery...');
           const recoveredWorkflow = attemptIdRecovery(beforeWorkflow, resultWorkflow);
           if (recoveredWorkflow) {
             resultWorkflow = recoveredWorkflow;
-            console.log('[Modify] ID recovery successful');
+            logger.log('[Modify] ID recovery successful');
           } else {
-            console.warn('[Modify] ID recovery failed - using AI output as-is');
+            logger.warn('[Modify] ID recovery failed - using AI output as-is');
           }
         }
 
         const mergeResult = mergeWorkflows(beforeWorkflow, resultWorkflow, content);
         mergeReport = mergeResult.report;
-        console.log('[Modify] Merge report:', mergeReport);
+        logger.log('[Modify] Merge report:', mergeReport);
         resultWorkflow = mergeResult.workflow;
         resultValidation = validateWorkflowLegacy(resultWorkflow);
 
         const postMergeDiagnosis = logPostModificationDiagnosis(beforeWorkflow, resultWorkflow);
         if (postMergeDiagnosis.totalOriginal > 3 && postMergeDiagnosis.preserveRate < 0.5) {
           lowPreservationWarning = true;
-          console.warn('[Modify] Low preservation rate after merge - AI likely rewrote too much');
+          logger.warn('[Modify] Low preservation rate after merge - AI likely rewrote too much');
         }
       }
 
@@ -1762,7 +1764,7 @@ ${getModificationExamples()}
           const analysis = await analyzeWorkflow(resultWorkflow, nodeLibrary.isPinned, undefined, settings.comfyuiUrl);
           if (analysis) setCurrentAnalysis(analysis);
         } catch (err) {
-          console.warn('Workflow analysis failed (non-critical):', err);
+          logger.warn('Workflow analysis failed (non-critical):', err);
         }
       }
 
@@ -1818,9 +1820,9 @@ ${getModificationExamples()}
     } catch (error: any) {
       // AbortError = user clicked Stop — show nothing
       if (error?.name === 'AbortError' || error?.message === 'signal is aborted without reason') {
-        console.log('[AI] Generation stopped by user.');
+        logger.log('[AI] Generation stopped by user.');
       } else {
-        console.error('AI call failed:', error);
+        logger.error('AI call failed:', error);
         toast.error(error.message || 'Failed to generate workflow');
         const errorMessage: Message = {
           id: generateId(),
@@ -1926,7 +1928,7 @@ ${getModificationExamples()}
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error: any) {
-      console.error('Fix request failed:', error);
+      logger.error('Fix request failed:', error);
       toast.error(error.message || 'Failed to fix workflow');
       const errorMessage: Message = {
         id: generateId(),
@@ -1979,7 +1981,7 @@ ${getModificationExamples()}
     try {
       analysis = await analyzeWorkflow(withNote, nodeLibrary.isPinned, undefined, settings.comfyuiUrl);
     } catch (err) {
-      console.warn('Workflow analysis failed (non-critical):', err);
+      logger.warn('Workflow analysis failed (non-critical):', err);
     }
 
     if (analysis) {
@@ -2032,7 +2034,7 @@ ${getModificationExamples()}
         commitLabel: `Imported: ${file.name}`,
       });
     } catch (error: any) {
-      console.error('Failed to import workflow:', error);
+      logger.error('Failed to import workflow:', error);
       toast.error(error.message || 'Failed to import workflow.');
     }
   }, [loadWorkflowIntoApp]);
@@ -2120,7 +2122,7 @@ ${getModificationExamples()}
 
       toast.success(`Learned ${result.nodeCount} node schemas from ${packTitle}`);
     } catch (error: any) {
-      console.error('Failed to learn pack schemas:', error);
+      logger.error('Failed to learn pack schemas:', error);
       toast.error(`Failed to learn ${packTitle}: ${error.message}`);
     } finally {
       setLearningPackId(null);
@@ -2298,7 +2300,7 @@ ${getModificationExamples()}
       return;
     }
 
-    console.log(
+    logger.log(
       `[BrainstormBuild] Building "${workflowTitle || 'Untitled Workflow'}" with ${normalizedClassTypes.length} nodes:`,
       normalizedClassTypes,
     );
@@ -2312,7 +2314,7 @@ ${getModificationExamples()}
       (sum, pack) => sum + countSelectedNodesForPack(newSelectorState, pack),
       0,
     );
-    console.log('[BrainstormBuild] Applying selector state:', {
+    logger.log('[BrainstormBuild] Applying selector state:', {
       mode: newSelectorState.mode,
       selectedNodes,
     });
@@ -2423,7 +2425,7 @@ ${getModificationExamples()}
       const validatedNodes = validateRecommendedNodes(recommendation.nodes, liveNodeMap);
       const availableCount = validatedNodes.filter((node) => node.available).length;
 
-      console.log(
+      logger.log(
         `[ExtractNodes] Found ${validatedNodes.length} nodes (${availableCount} available) for "${recommendation.workflow_title}"`,
       );
 
@@ -2433,7 +2435,7 @@ ${getModificationExamples()}
       });
       toast.success(`Extracted ${validatedNodes.length} nodes (${availableCount} available).`);
     } catch (error) {
-      console.error('[ExtractNodes] Extraction failed:', error);
+      logger.error('[ExtractNodes] Extraction failed:', error);
       toast.error('Node extraction failed. Please try again.');
     } finally {
       setIsExtractingNodes(false);
@@ -2798,7 +2800,7 @@ ${getModificationExamples()}
       setComfyuiWorkflowSubfolders(folders);
       return folders;
     } catch (error) {
-      console.warn('[ComfyUI Sync] Failed to refresh workflow folders:', error);
+      logger.warn('[ComfyUI Sync] Failed to refresh workflow folders:', error);
       setComfyuiWorkflowSubfolders([]);
       return [];
     }
@@ -2869,7 +2871,7 @@ ${getModificationExamples()}
   }, [currentWorkflow, refreshComfyUIWorkflowFolders, settings.comfyuiUrl]);
 
   const handleRerun = useCallback((workflow: Record<string, unknown>) => {
-    const rerunWorkflow = workflow as ComfyUIWorkflow;
+    const rerunWorkflow = workflow as unknown as ComfyUIWorkflow;
     commitWorkflowChange(rerunWorkflow, 'Loaded from history (rerun)');
     const result = runValidation(rerunWorkflow);
     if (result.isValid && !result.wasModified) {
@@ -2933,7 +2935,7 @@ ${getModificationExamples()}
   return (
     <>
     <CommandCenter
-      currentWorkflow={currentWorkflow ?? undefined}
+      currentWorkflow={(currentWorkflow as unknown as Record<string, unknown>) ?? undefined}
       onLoadWorkflow={handleLoadWorkflow}
       onLoadGalleryWorkflow={handleLoadWorkflowFromGallery}
       onLoadComfyUIWorkflow={handleLoadComfyUIWorkflow}
@@ -3129,7 +3131,6 @@ ${getModificationExamples()}
                 fontSize: '13px',
               },
             }}
-            containerStyle={{ top: 12, right: 12, zIndex: 50 }}
           />
           <ReactFlowProvider>
             <div className="flex-1 overflow-hidden relative">
@@ -3281,7 +3282,7 @@ ${getModificationExamples()}
                 const analysis = await analyzeWorkflow(labeled, nodeLibrary.isPinned, undefined, settings.comfyuiUrl);
                 if (analysis) setCurrentAnalysis(analysis);
               } catch (err) {
-                console.warn('Workflow analysis failed (non-critical):', err);
+                logger.warn('Workflow analysis failed (non-critical):', err);
               }
             }}
             onReject={() => {

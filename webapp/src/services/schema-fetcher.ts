@@ -15,6 +15,7 @@
 import type { CompactNodeSchema } from '../data/custom-node-schemas';
 import type { ProviderSettings } from '../types/comfyui';
 import { callAI, getMaxOutputTokens, getModelContextWindow } from './ai-provider';
+import { logger } from '@/utils/logger';
 import {
   SCHEMA_PARSER_SYSTEM_PROMPT,
   buildSchemaParserUserMessage,
@@ -174,7 +175,7 @@ async function detectDefaultBranch(
           { method: 'HEAD' }, // HEAD is faster — we only need to know if it exists
         );
         if (res.ok) {
-          console.log(`[Learn Nodes] Detected branch '${branch}' via ${file}`);
+          logger.log(`[Learn Nodes] Detected branch '${branch}' via ${file}`);
           return branch;
         }
       } catch {
@@ -415,7 +416,7 @@ async function followImports(
 
   if (toProbe.size === 0) return [];
 
-  console.log('[Learn Nodes] Following imports — probing', toProbe.size, 'additional paths:', [...toProbe]);
+  logger.log('[Learn Nodes] Following imports — probing', toProbe.size, 'additional paths:', [...toProbe]);
 
   const additionalFiles: Array<{ path: string; content: string }> = [];
   const probePaths = [...toProbe].slice(0, 20); // cap to avoid excessive probing
@@ -444,7 +445,7 @@ async function followImports(
     }
   }
 
-  console.log('[Learn Nodes] Import-following found', additionalFiles.length, 'additional files:', additionalFiles.map(f => f.path));
+  logger.log('[Learn Nodes] Import-following found', additionalFiles.length, 'additional files:', additionalFiles.map(f => f.path));
   return additionalFiles;
 }
 
@@ -470,11 +471,11 @@ async function discoverFiles(
   try {
     const files = await probeCommonFiles(owner, repo, branch);
     if (files.length > 0) {
-      console.log(`[Learn Nodes] Strategy 1 (probe) found ${files.length} files`);
+      logger.log(`[Learn Nodes] Strategy 1 (probe) found ${files.length} files`);
       return { prefetchedFiles: files };
     }
   } catch (e: any) {
-    console.warn('Direct probing failed:', e.message);
+    logger.warn('Direct probing failed:', e.message);
   }
 
   // Strategy 2: Contents API (needs GitHub API, may be rate-limited without token)
@@ -482,11 +483,11 @@ async function discoverFiles(
   try {
     const files = await fetchFileTreeViaContents(owner, repo, branch, token);
     if (files.length > 0) {
-      console.log(`[Learn Nodes] Strategy 2 (Contents API) found ${files.length} files`);
+      logger.log(`[Learn Nodes] Strategy 2 (Contents API) found ${files.length} files`);
       return { fileInfos: files };
     }
   } catch (e: any) {
-    console.warn('Contents API failed:', e.message);
+    logger.warn('Contents API failed:', e.message);
   }
 
   // Strategy 3: Tree API (single call but needs auth for large repos)
@@ -494,11 +495,11 @@ async function discoverFiles(
   try {
     const files = await fetchRepoTree(owner, repo, branch, token);
     if (files.length > 0) {
-      console.log(`[Learn Nodes] Strategy 3 (Tree API) found ${files.length} files`);
+      logger.log(`[Learn Nodes] Strategy 3 (Tree API) found ${files.length} files`);
       return { fileInfos: files };
     }
   } catch (e: any) {
-    console.warn('Tree API failed:', e.message);
+    logger.warn('Tree API failed:', e.message);
   }
 
   throw new Error(
@@ -670,8 +671,8 @@ function extractArrayFromParsed(parsed: any): any[] | null {
  * Parse the AI's response into an array of CompactNodeSchema.
  */
 function parseAISchemaResponse(response: string): CompactNodeSchema[] {
-  console.log('[Schema Parser] Raw AI response length:', response.length);
-  console.log('[Schema Parser] Response preview:', response.substring(0, 500));
+  logger.log('[Schema Parser] Raw AI response length:', response.length);
+  logger.log('[Schema Parser] Response preview:', response.substring(0, 500));
 
   const trimmed = response.trim();
 
@@ -686,7 +687,7 @@ function parseAISchemaResponse(response: string): CompactNodeSchema[] {
     if (arr) {
       parsedSuccessfully = true;
       const schemas = validateSchemas(arr);
-      console.log('[Schema Parser] Strategy 1 (direct JSON): parsed', arr.length, 'items →', schemas.length, 'valid schemas');
+      logger.log('[Schema Parser] Strategy 1 (direct JSON): parsed', arr.length, 'items →', schemas.length, 'valid schemas');
       if (schemas.length > 0) return schemas;
     }
   } catch { /* not direct JSON */ }
@@ -701,7 +702,7 @@ function parseAISchemaResponse(response: string): CompactNodeSchema[] {
       if (arr) {
         parsedSuccessfully = true;
         const schemas = validateSchemas(arr);
-        console.log('[Schema Parser] Strategy 2 (code block): parsed', arr.length, 'items →', schemas.length, 'valid schemas');
+        logger.log('[Schema Parser] Strategy 2 (code block): parsed', arr.length, 'items →', schemas.length, 'valid schemas');
         if (schemas.length > 0) return schemas;
       }
     } catch { /* invalid JSON in this block */ }
@@ -726,7 +727,7 @@ function parseAISchemaResponse(response: string): CompactNodeSchema[] {
         if (Array.isArray(parsed)) {
           parsedSuccessfully = true;
           const schemas = validateSchemas(parsed);
-          console.log('[Schema Parser] Strategy 3 (bracket match): parsed', parsed.length, 'items →', schemas.length, 'valid schemas');
+          logger.log('[Schema Parser] Strategy 3 (bracket match): parsed', parsed.length, 'items →', schemas.length, 'valid schemas');
           if (schemas.length > 0) return schemas;
         }
       } catch { /* no valid JSON array */ }
@@ -752,7 +753,7 @@ function parseAISchemaResponse(response: string): CompactNodeSchema[] {
         if (arr) {
           parsedSuccessfully = true;
           const schemas = validateSchemas(arr);
-          console.log('[Schema Parser] Strategy 4 (wrapper object): parsed', arr.length, 'items →', schemas.length, 'valid schemas');
+          logger.log('[Schema Parser] Strategy 4 (wrapper object): parsed', arr.length, 'items →', schemas.length, 'valid schemas');
           if (schemas.length > 0) return schemas;
         }
       } catch { /* no valid JSON object */ }
@@ -762,12 +763,12 @@ function parseAISchemaResponse(response: string): CompactNodeSchema[] {
   // If we parsed valid JSON but got 0 schemas, return empty array.
   // The caller has a better diagnostic message for this case.
   if (parsedSuccessfully) {
-    console.warn('[Schema Parser] Parsed valid JSON but 0 schemas passed validation.');
+    logger.warn('[Schema Parser] Parsed valid JSON but 0 schemas passed validation.');
     return [];
   }
 
   // Truly failed to parse — the response wasn't valid JSON at all
-  console.error('[Schema Parser] All parsing strategies failed. Full response:', response);
+  logger.error('[Schema Parser] All parsing strategies failed. Full response:', response);
   throw new Error(
     `Could not parse AI response as node schemas. Response starts with: "${response.substring(0, 150)}..."`
   );
@@ -971,13 +972,13 @@ export async function learnPackSchemas(
 
   // 5. Filter to files that actually contain node definitions
   const relevantFiles = filterRelevantFiles(fileContents);
-  console.log('[Learn Nodes] Total fetched files:', fileContents.length,
+  logger.log('[Learn Nodes] Total fetched files:', fileContents.length,
     '| Paths:', fileContents.map(f => f.path));
-  console.log('[Learn Nodes] Relevant files (contain node patterns):',
+  logger.log('[Learn Nodes] Relevant files (contain node patterns):',
     relevantFiles.length, '| Paths:', relevantFiles.map(f => f.path));
 
   if (relevantFiles.length === 0) {
-    console.warn('[Learn Nodes] No files matched node-definition patterns. Falling back to init/__init__.py or first 3 files.');
+    logger.warn('[Learn Nodes] No files matched node-definition patterns. Falling back to init/__init__.py or first 3 files.');
     const initFile = fileContents.find(f => f.path.endsWith('__init__.py'));
     if (initFile) {
       relevantFiles.push(initFile);
@@ -995,7 +996,7 @@ export async function learnPackSchemas(
     detail: `Sending ${truncated.length} files to AI for parsing (~${Math.round(totalChars / 4)} tokens)...`,
   });
 
-  console.log('[Learn Nodes] Sending to AI:', truncated.map(f => `${f.path} (${f.content.length} chars)`));
+  logger.log('[Learn Nodes] Sending to AI:', truncated.map(f => `${f.path} (${f.content.length} chars)`));
 
   // 7. Call AI to parse
   const userMessage = buildSchemaParserUserMessage(packTitle, truncated);
@@ -1038,8 +1039,8 @@ export async function learnPackSchemas(
     // Provide a diagnostic error with what the AI actually returned
     const preview = aiResponse.substring(0, 300).replace(/\n/g, ' ');
     const fileList = truncated.map(f => f.path).join(', ');
-    console.error('[Learn Nodes] 0 valid schemas after parsing. AI response preview:', preview);
-    console.error('[Learn Nodes] Files that were sent to AI:', fileList);
+    logger.error('[Learn Nodes] 0 valid schemas after parsing. AI response preview:', preview);
+    logger.error('[Learn Nodes] Files that were sent to AI:', fileList);
     throw new Error(
       `AI returned 0 node schemas from ${truncated.length} file(s): ${fileList}. ` +
       `The files may only contain imports/re-exports without actual INPUT_TYPES definitions, ` +

@@ -12,6 +12,7 @@ import type {
 import type { LiveNodeCache, LiveNodeSchema } from './comfyui-backend';
 import { getLiveNodeCache } from './comfyui-backend';
 import { NODE_REGISTRY } from '../data/node-registry';
+import { logger } from '@/utils/logger';
 
 export interface ConversionResult {
   workflow: ComfyUIWorkflow;
@@ -427,7 +428,7 @@ export function apiToGraph(apiWorkflow: ComfyUIAPIWorkflow): ConversionResult {
     schemaByNodeIdString.set(nodeIdString, schema);
     if (resolvedSchema.strategy && resolvedClassType !== apiNode.class_type) {
       const message = `[apiToGraph] Fuzzy class_type match: "${apiNode.class_type}" -> "${resolvedClassType}" (${resolvedSchema.strategy})`;
-      console.warn(message);
+      logger.warn(message);
       warnings.push(message);
     }
     if (!schema) {
@@ -498,7 +499,7 @@ export function apiToGraph(apiWorkflow: ComfyUIAPIWorkflow): ConversionResult {
           widgetsValues.push(consumed.value);
           if (consumed.matchedKey && (consumed.strategy === 'contains' || consumed.strategy === 'deep_norm')) {
             const strategyLabel = consumed.strategy === 'deep_norm' ? 'deep norm' : consumed.strategy;
-            console.warn(
+            logger.warn(
               `[apiToGraph] Fuzzy widget match: schema="${input.name}" <- AI="${consumed.matchedKey}" (${strategyLabel})`,
             );
           }
@@ -616,19 +617,19 @@ export function apiToGraph(apiWorkflow: ComfyUIAPIWorkflow): ConversionResult {
 
     if (import.meta.env.DEV) {
       const unresolvedWidgetKeys = Object.keys(widgetInputsByName);
-      console.log(`[apiToGraph] Node ${nodeIdString} (${apiNode.class_type})`);
-      console.log('  Schema widgets:', schemaWidgetInputs.map((input) => `${input.name}(${input.type})`));
-      console.log('  Built widgets_values:', widgetsValues);
+      logger.log(`[apiToGraph] Node ${nodeIdString} (${apiNode.class_type})`);
+      logger.log('  Schema widgets:', schemaWidgetInputs.map((input) => `${input.name}(${input.type})`));
+      logger.log('  Built widgets_values:', widgetsValues);
       const slotNames = (node.inputs || []).map((input, idx) => `slot${idx}: ${input.name}(${input.type}) link=${input.link}`);
-      console.log('  Connection slots:', slotNames);
+      logger.log('  Connection slots:', slotNames);
       if (schema) {
         const schemaOrder = schemaConnectionInputs.map((input) => input.name);
         const graphOrder = (node.inputs || []).map((input) => input.name);
         const orderMatch = JSON.stringify(schemaOrder) === JSON.stringify(graphOrder);
-        console.log('  Slot order matches schema:', orderMatch ? '✅' : '❌ MISMATCH');
+        logger.log('  Slot order matches schema:', orderMatch ? '✅' : '❌ MISMATCH');
       }
       if (unresolvedWidgetKeys.length > 0) {
-        console.warn('  Unmatched AI widget keys:', unresolvedWidgetKeys);
+        logger.warn('  Unmatched AI widget keys:', unresolvedWidgetKeys);
       }
     }
   }

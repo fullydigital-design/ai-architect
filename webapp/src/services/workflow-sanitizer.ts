@@ -13,8 +13,7 @@ export function sanitizeWorkflow(workflow: ComfyUIWorkflow): { sanitized: ComfyU
     const liveSchema = liveCache?.nodes?.[node.type];
     const staticSchema = NODE_REGISTRY.get(node.type);
     const schema = liveSchema || staticSchema;
-    const hasExactSchema = Boolean(schema);
-    if (!hasExactSchema) continue;
+    if (!schema) continue;
     if (!Array.isArray(node.widgets_values) || node.widgets_values.length === 0) continue;
 
     const widgetInputs = (schema.inputs || []).filter((input) => input.isWidget);

@@ -71,7 +71,7 @@ export function buildStudySystemPrompt(
 - **Structure over prose.** Use bullet points and tables. Avoid multi-paragraph blocks of plain text.
 - **No preamble.** Skip openers like "Great question!", "Let me walk you through..." — just explain.
 - **Assume expert ComfyUI user.** Don't define sampler, CFG, latent space, or other fundamentals unless asked.
-- **Quote the workflow.** Reference actual values: `steps: 20`, `cfg: 7.0`, `KSampler #5` — not vague descriptions.
+- **Quote the workflow.** Reference actual values: \`steps: 20\`, \`cfg: 7.0\`, \`KSampler #5\` — not vague descriptions.
 - **Depth over breadth.** If asked about one node, explain that node deeply. Don't survey the whole pipeline unless the user asks for an overview.
 
 ## Pack Recommendation Tags

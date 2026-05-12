@@ -1,6 +1,7 @@
 import type { AIProvider, ProviderSettings, CustomModel } from '../types/comfyui';
 import { ALL_NODES } from '../data/node-registry';
 import { buildSystemPrompt } from '../data/system-prompt';
+import { logger } from '@/utils/logger';
 
 // Known model context windows (in tokens)
 // Conservative estimates — actual may be higher.
@@ -198,7 +199,7 @@ export function getMaxOutputTokens(modelId: string): number {
   const warnKey = modelId || '(empty-model-id)';
   if (!_warnedModels.has(warnKey)) {
     _warnedModels.add(warnKey);
-    console.warn(`[AI] Unknown model output limit for "${modelId}", falling back to context window ${fallback}`);
+    logger.warn(`[AI] Unknown model output limit for "${modelId}", falling back to context window ${fallback}`);
   }
   return fallback;
 }
@@ -304,7 +305,7 @@ export function getProviderForModel(modelId: string, customModels: CustomModel[]
 
 export function getAPIKeyForModel(settings: ProviderSettings): string {
   const provider = getProviderForModel(settings.selectedModel, settings.customModels);
-  return settings.keys[provider];
+  return settings.keys[provider] ?? '';
 }
 
 // ===== Provider display info =====
@@ -457,11 +458,11 @@ function makeThinkStreamFilter(onChunk: (chunk: string) => void): (chunk: string
 export async function callAI(options: AICallOptions): Promise<AICallResult> {
   const { settings, messages, onChunk, systemPromptOverride, signal } = options;
   const provider = getProviderForModel(settings.selectedModel, settings.customModels);
-  const apiKey = settings.keys[provider];
+  const apiKey = settings.keys[provider] ?? '';
   const contextWindow = getModelContextWindow(settings.selectedModel);
   const maxOutput = getMaxOutputTokens(settings.selectedModel);
 
-  console.log(
+  logger.log(
     `[AI] Model: ${settings.selectedModel} | Context: ${contextWindow.toLocaleString()} | Max output: ${maxOutput.toLocaleString()} | Provider: ${provider}`,
   );
 
@@ -470,9 +471,9 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   }
 
   const prompt = systemPromptOverride || await systemPromptPromise;
-  console.log('[SystemPrompt] Final prompt length:', prompt.length);
-  console.log('[SystemPrompt] Contains checkpoints:', prompt.includes('safetensors'));
-  console.log('[SystemPrompt] Prompt preview (first 500 chars):', prompt.substring(0, 500));
+  logger.log('[SystemPrompt] Final prompt length:', prompt.length);
+  logger.log('[SystemPrompt] Contains checkpoints:', prompt.includes('safetensors'));
+  logger.log('[SystemPrompt] Prompt preview (first 500 chars):', prompt.substring(0, 500));
 
   const allMessages = [
     { role: 'system' as const, content: prompt },
@@ -483,9 +484,9 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   const tokenCalc = calculateMaxTokens(joinedInput, settings.selectedModel);
 
   if (!tokenCalc.fits) {
-    console.warn('[AI] Input may exceed model context budget:', tokenCalc.error);
+    logger.warn('[AI] Input may exceed model context budget:', tokenCalc.error);
   }
-  console.log('[AI] Token budget:', {
+  logger.log('[AI] Token budget:', {
     model: settings.selectedModel,
     inputTokens: tokenCalc.inputTokens,
     contextWindow: tokenCalc.contextWindow,
@@ -548,7 +549,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
     totalTokens: estimatedInput + estimatedOutput,
     estimated: true,
   };
-  console.log('[AI] Usage metadata missing; estimated token usage:', estimatedUsage);
+  logger.log('[AI] Usage metadata missing; estimated token usage:', estimatedUsage);
   return {
     text: cleanText,
     usage: estimatedUsage,

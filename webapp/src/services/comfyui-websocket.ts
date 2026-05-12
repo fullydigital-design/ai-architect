@@ -16,6 +16,7 @@
  *   { type: "execution_cached", data: { nodes: ["id1","id2"], prompt_id: "..." } }
  */
 import { getComfyUIWebSocketUrl } from './api-config';
+import { logger } from '@/utils/logger';
 
 export type ComfyWSMessageType =
   | 'status'
@@ -93,7 +94,7 @@ export class ComfyUIWebSocket {
 
       this.ws.onerror = (err) => {
         if (this.intentionallyClosed) {
-          console.debug('[ComfyWS] Ignoring websocket error during intentional shutdown');
+          logger.debug('[ComfyWS] Ignoring websocket error during intentional shutdown');
           return;
         }
         this.callbacks.onError?.(err);
@@ -121,7 +122,7 @@ export class ComfyUIWebSocket {
     }
     if (this.ws) {
       if (this.ws.readyState === WebSocket.CONNECTING) {
-        console.debug('[ComfyWS] Closing websocket during CONNECTING state');
+        logger.debug('[ComfyWS] Closing websocket during CONNECTING state');
       }
       this.ws.close();
       this.ws = null;

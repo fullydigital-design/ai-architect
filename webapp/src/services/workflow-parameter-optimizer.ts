@@ -11,6 +11,7 @@ import {
 } from './node-schema-resolver';
 import { getRawObjectInfo } from './comfyui-backend';
 import type { ComfyUIWorkflow, ProviderSettings } from '../types/comfyui';
+import { logger } from '@/utils/logger';
 
 export type OptimizationIntent = 'quality' | 'speed' | 'balanced' | 'custom';
 
@@ -186,7 +187,7 @@ export function buildWorkflowSnapshot(
     lines.push('');
   }
 
-  console.log('[Optimizer] Snapshot widget types:', comboDiagnostics.filter((entry) => entry.combos.length > 0));
+  logger.log('[Optimizer] Snapshot widget types:', comboDiagnostics.filter((entry) => entry.combos.length > 0));
 
   return lines.join('\n');
 }
@@ -344,56 +345,56 @@ function parseOptimizerResponse(
     if (!Number.isFinite(nodeId) || !widgetName) continue;
 
     if (selectedNodeIdSet && selectedNodeIdSet.size > 0 && !selectedNodeIdSet.has(nodeId)) {
-      console.warn(`[ParameterOptimizer] Skipping out-of-scope node #${nodeId}`);
+      logger.warn(`[ParameterOptimizer] Skipping out-of-scope node #${nodeId}`);
       continue;
     }
 
     const lockKey = `${nodeId}:${widgetName}`;
     if (lockedParamKeys?.has(lockKey)) {
-      console.warn(`[ParameterOptimizer] Skipping locked parameter ${lockKey}`);
+      logger.warn(`[ParameterOptimizer] Skipping locked parameter ${lockKey}`);
       continue;
     }
 
     const node = (workflow.nodes || []).find((entry) => entry.id === nodeId);
     if (!node) {
-      console.warn(`[ParameterOptimizer] Skipping unknown node #${nodeId}`);
+      logger.warn(`[ParameterOptimizer] Skipping unknown node #${nodeId}`);
       continue;
     }
 
     const schema = resolveNodeSchema(node.type, objectInfo);
     if (!schema) {
-      console.warn(`[ParameterOptimizer] Missing schema for node type "${node.type}"`);
+      logger.warn(`[ParameterOptimizer] Missing schema for node type "${node.type}"`);
       continue;
     }
 
     const widget = schema.widgets.find((entry) => entry.name === widgetName);
     if (!widget) {
-      console.warn(`[ParameterOptimizer] Missing widget "${widgetName}" on ${node.type}`);
+      logger.warn(`[ParameterOptimizer] Missing widget "${widgetName}" on ${node.type}`);
       continue;
     }
 
-    console.log(`[Optimizer] Validating change: node ${nodeId} / ${widgetName}`);
+    logger.log(`[Optimizer] Validating change: node ${nodeId} / ${widgetName}`);
 
     const currentValues = getCurrentWidgetValues(node.widgets_values, schema);
     const oldValue = currentValues.get(widgetName);
 
-    console.log(`[Optimizer]   Current value: ${JSON.stringify(oldValue)}`);
-    console.log(`[Optimizer]   Proposed value: ${JSON.stringify(proposedValue)}`);
-    console.log('[Optimizer]   Widget schema:', widget);
+    logger.log(`[Optimizer]   Current value: ${JSON.stringify(oldValue)}`);
+    logger.log(`[Optimizer]   Proposed value: ${JSON.stringify(proposedValue)}`);
+    logger.log('[Optimizer]   Widget schema:', widget);
 
     const validation = isValueValid(widgetName, proposedValue, widget, node.type, liveObjectInfo || objectInfo);
 
     if (validation.validOptions && validation.validOptions.length > 0) {
-      console.log(
+      logger.log(
         `[Optimizer]   COMBO options (${validation.validOptions.length}):`,
         validation.validOptions.slice(0, 10),
         validation.validOptions.length > 10 ? `... +${validation.validOptions.length - 10} more` : '',
       );
-      console.log(`[Optimizer]   Is valid: ${validation.isValid}`);
+      logger.log(`[Optimizer]   Is valid: ${validation.isValid}`);
     }
 
     if (!validation.isValid) {
-      console.warn(`[ParameterOptimizer] Invalid value ${JSON.stringify(proposedValue)} for ${node.type}.${widgetName}`);
+      logger.warn(`[ParameterOptimizer] Invalid value ${JSON.stringify(proposedValue)} for ${node.type}.${widgetName}`);
       continue;
     }
 
@@ -401,7 +402,7 @@ function parseOptimizerResponse(
     if (JSON.stringify(oldValue) === JSON.stringify(nextValue)) continue;
 
     if (validation.isAutoCorrected) {
-      console.log(
+      logger.log(
         `[Optimizer] Auto-corrected ${node.type}.${widgetName}: ${JSON.stringify(proposedValue)} -> ${JSON.stringify(nextValue)}`,
       );
     }
@@ -434,7 +435,7 @@ function isValueValid(
   liveObjectInfo?: Record<string, any> | null,
 ): ValueValidationResult {
   const result = validateAndNormalizeValue(widgetName, value, widget, nodeType, liveObjectInfo || undefined);
-  console.log(`[Optimizer] isValueValid(${widgetName}, ${JSON.stringify(value)}):`, {
+  logger.log(`[Optimizer] isValueValid(${widgetName}, ${JSON.stringify(value)}):`, {
     schemaType: widget?.type,
     hasOptions: !!(widget?.options?.length),
     optionCount: (result.validOptions || widget?.options || []).length,
@@ -483,7 +484,7 @@ function validateAndNormalizeValue(
         return validValidation(normalizedValue, options);
       }
 
-      console.warn(
+      logger.warn(
         `[Optimizer] COMBO validation FAILED: "${widgetName}" value "${normalizedValue}" not in ${options.length} options`,
       );
 
@@ -499,7 +500,7 @@ function validateAndNormalizeValue(
         };
       }
 
-      console.warn(
+      logger.warn(
         `[Optimizer] No match found for ${widgetName}. Available: ${options.slice(0, 5).join(', ')}${options.length > 5 ? '...' : ''}`,
       );
       return invalidValidation(value, options);

@@ -74,14 +74,14 @@ export async function fetchOpenRouterModels(apiKey: string): Promise<OpenRouterM
   const rows = Array.isArray(payload.data) ? payload.data : [];
 
   const models: OpenRouterModelInfo[] = rows
-    .map((row) => {
+    .map((row): OpenRouterModelInfo | null => {
       const id = String(row.id || '').trim();
       if (!id) return null;
       const contextLength = Number(row.context_length || 0);
       return {
         id,
         name: String(row.name || id),
-        provider: 'openrouter' as const,
+        provider: 'openrouter',
         contextLength: contextLength > 0 ? contextLength : DEFAULT_CONTEXT_LENGTH,
       };
     })

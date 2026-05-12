@@ -10,6 +10,7 @@ import {
   type LiveNodeSchema,
 } from '../services/comfyui-backend';
 import { buildWorkflowReferenceSection } from '../services/workflow-library';
+import { logger } from '@/utils/logger';
 
 const NODE_CONTEXT_INSTRUCTION = `
 ### Selected Node Guidance
@@ -161,7 +162,7 @@ export async function buildSystemPromptWithPacks(
     ? buildWorkflowModificationContext(buildWorkflowContext(currentWorkflow))
     : '';
 
-  console.log('[Environment] Injected into system prompt:', {
+  logger.log('[Environment] Injected into system prompt:', {
     checkpoints: environment.checkpoints.length,
     loras: environment.loras.length,
     unets: environment.unets.length,
@@ -449,7 +450,7 @@ LoadImage(image) + LoadImage(mask) -> VAEEncodeForInpaint -> KSampler -> VAEDeco
 
 ${workflowSection}`;
 
-  console.log('[SystemPrompt] Final prompt length:', prompt.length, {
+  logger.log('[SystemPrompt] Final prompt length:', prompt.length, {
     nodeCount: availableNodeCount,
     liveSchemas: hasLiveNodeSchemas,
   });

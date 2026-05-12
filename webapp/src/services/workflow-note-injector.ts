@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 ﻿/**
  * Phase 10G - Auto-injects a canonical documentation Note node into ComfyUI workflows.
  * Uses marker strings to find/replace existing auto-notes (never duplicates).
@@ -223,7 +224,7 @@ function injectNoteAPIFormat(workflow: any, noteText: string): any {
   void noteText;
   // Note nodes are frontend-only (LiteGraph) and do not exist in ComfyUI backend.
   // Never inject into API format to avoid "missing_node_type" execution errors.
-  console.debug('[NoteInjector] Skipping API format note injection (UI-only node type)');
+  logger.debug('[NoteInjector] Skipping API format note injection (UI-only node type)');
   return workflow;
 }
 

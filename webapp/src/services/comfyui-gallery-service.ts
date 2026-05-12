@@ -1,4 +1,5 @@
 import { detectMixedContent, resolveComfyUrl } from './comfyui-backend';
+import { logger } from '@/utils/logger';
 
 export interface GalleryImage {
   /** Full URL to display the image via ComfyUI /view endpoint */
@@ -189,8 +190,8 @@ export async function fetchGalleryImages(
   currentSessionPromptIds?: Set<string>,
 ): Promise<GalleryImage[]> {
   const normalizedBase = resolveComfyUrl(baseUrl);
-  console.log('[Gallery] baseUrl received:', baseUrl);
-  console.log('[Gallery] resolved URL:', normalizedBase);
+  logger.log('[Gallery] baseUrl received:', baseUrl);
+  logger.log('[Gallery] resolved URL:', normalizedBase);
   if (detectMixedContent(normalizedBase)) {
     throw new Error('HTTPS to HTTP ComfyUI requests are blocked by browser mixed-content policy.');
   }
@@ -205,7 +206,7 @@ export async function fetchGalleryImages(
 
   const rawHistory = await response.json() as unknown;
   const history = coerceHistoryMap(rawHistory);
-  console.log('[Gallery] History entries:', Object.keys(history).length);
+  logger.log('[Gallery] History entries:', Object.keys(history).length);
   const images: GalleryImage[] = [];
 
   for (const [promptId, entry] of Object.entries(history || {})) {
@@ -240,7 +241,7 @@ export async function fetchGalleryImages(
     }
   }
 
-  console.log('[Gallery] Extracted images:', images.length);
+  logger.log('[Gallery] Extracted images:', images.length);
   images.sort((a, b) => b.timestamp - a.timestamp);
   return images;
 }

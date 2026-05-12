@@ -6,6 +6,7 @@ import type {
 import { CUSTOM_NODE_PACKS } from '../data/custom-nodes';
 import { NODE_REGISTRY } from '../data/node-registry';
 import { apiToGraph } from './api-to-graph-converter';
+import { logger } from '@/utils/logger';
 
 export interface ParsedResponse {
   workflow: ComfyUIWorkflow | null;
@@ -48,7 +49,7 @@ export function parseAIResponse(response: string): ParsedResponse {
       result.conversionWarnings = conversion.warnings;
       result.unknownNodes = conversion.unknownNodes;
     } catch (e) {
-      console.error('Failed to parse API workflow JSON:', e);
+      logger.error('Failed to parse API workflow JSON:', e);
     }
   }
 
@@ -60,7 +61,7 @@ export function parseAIResponse(response: string): ParsedResponse {
         result.rawJson = workflowMatch[1].trim();
         result.workflow = JSON.parse(result.rawJson) as ComfyUIWorkflow;
       } catch (e) {
-        console.error('Failed to parse graph workflow JSON:', e);
+        logger.error('Failed to parse graph workflow JSON:', e);
       }
     }
   }

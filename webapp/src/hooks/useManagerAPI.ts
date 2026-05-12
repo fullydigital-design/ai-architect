@@ -13,6 +13,7 @@ import {
   type ManagerNode,
 } from '../app/services/comfyui-manager-service';
 import { resolveComfyUIBaseUrl } from '../services/api-config';
+import { logger } from '@/utils/logger';
 
 export interface UseManagerAPIReturn {
   managerAvailable: boolean;
@@ -80,7 +81,7 @@ export function useManagerAPI(comfyuiUrl?: string): UseManagerAPIReturn {
     setIsChecking(true);
     try {
       const ok = await checkManagerAvailable(target);
-      console.log('[useManagerAPI] Setting managerAvailable:', ok);
+      logger.log('[useManagerAPI] Setting managerAvailable:', ok);
       setManagerAvailable(ok);
       return ok;
     } catch (err) {
@@ -126,7 +127,7 @@ export function useManagerAPI(comfyuiUrl?: string): UseManagerAPIReturn {
         }
 
         if (attempt < maxRetries) {
-          console.log(`[useManagerAPI] Retry ${attempt + 1}/${maxRetries} in ${retryDelayMs}ms`);
+          logger.log(`[useManagerAPI] Retry ${attempt + 1}/${maxRetries} in ${retryDelayMs}ms`);
           await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         }
       }

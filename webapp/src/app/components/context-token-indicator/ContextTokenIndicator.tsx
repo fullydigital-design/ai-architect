@@ -19,6 +19,7 @@ import {
   type FilterPresetId,
 } from '@/services/node-schema-filter';
 import type { ModelPreset } from '@/hooks/useModelLibrary';
+import { logger } from '@/utils/logger';
 
 interface PackBreakdownEntry {
   packId: string;
@@ -283,7 +284,7 @@ export function ContextTokenIndicator({
 
     onFilterConfigChange(nextConfig);
     persistManualOverrides([...added], [...removed], nextConfig);
-    console.log('[PackToggle] Saved:', { manuallyAdded: [...added], manuallyRemoved: [...removed] });
+    logger.log('[PackToggle] Saved:', { manuallyAdded: [...added], manuallyRemoved: [...removed] });
     if (!options?.suppressToast) {
       toast.success(
         checked

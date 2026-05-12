@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Puzzle, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { logger } from '@/utils/logger';
 import type {
   ComfyUIWorkflow,
   FragmentType,
@@ -105,7 +106,7 @@ export function SaveToLibraryDialog({
       onSaved?.(template.id);
       onClose();
     } catch (error) {
-      console.error('[SaveToLibrary] Error:', error);
+      logger.error('[SaveToLibrary] Error:', error);
       toast.error('Failed to save workflow');
     }
   };

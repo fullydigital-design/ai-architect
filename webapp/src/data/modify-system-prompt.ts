@@ -55,10 +55,10 @@ ${packsSection ? `## Custom Node Pack Context\n${packsSection}\n` : ''}## Modifi
 4. New link IDs must start from last_link_id + 1 and increment sequentially.
 5. Position newly added nodes near their related nodes in the graph.
 6. Before the JSON block, output a compact change summary using ONLY this format (no prose paragraphs):
-   **Added:** `NodeType` #ID — reason
-   **Modified:** `NodeType` #ID — param: old → new (reason)
-   **Removed:** `NodeType` #ID — reason
-   **Rewired:** `NodeType` #A → `NodeType` #B — reason
+   **Added:** \`NodeType\` #ID — reason
+   **Modified:** \`NodeType\` #ID — param: old → new (reason)
+   **Removed:** \`NodeType\` #ID — reason
+   **Rewired:** \`NodeType\` #A → \`NodeType\` #B — reason
 7. Use real model filenames when available.
 8. Validate connection type compatibility for every new or modified link.
 

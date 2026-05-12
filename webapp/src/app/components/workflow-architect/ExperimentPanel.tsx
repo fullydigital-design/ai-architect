@@ -77,6 +77,7 @@ import {
   type ExperimentPreset,
 } from '../../../data/experiment-presets';
 import { WorkflowDiffView } from './WorkflowDiffView';
+import { logger } from '@/utils/logger';
 
 interface ExperimentPanelProps {
   isOpen: boolean;
@@ -577,14 +578,14 @@ export function ExperimentPanel({
       const fullPrompt = `${optimizerSystemPrompt}\n\n${optimizerUserMessage}`;
       const tokenCalc = calculateMaxTokens(fullPrompt, currentModel);
 
-      console.log(
+      logger.log(
         '[Optimizer] Request payload size (chars):',
         workflowJson.length,
         '(original:',
         JSON.stringify(workflow).length,
         ')',
       );
-      console.log('[Optimizer] Token estimate:', {
+      logger.log('[Optimizer] Token estimate:', {
         inputTokens: tokenCalc.inputTokens,
         contextWindow: tokenCalc.contextWindow,
         maxOutputTokens: tokenCalc.maxTokens,
@@ -604,7 +605,7 @@ export function ExperimentPanel({
           `Try a larger model like Gemini 1.5 Pro (2M) or Claude 3.5 Sonnet (200K).`,
           { duration: 8000 },
         );
-        console.error('[Optimizer]', sizeError);
+        logger.error('[Optimizer]', sizeError);
         return;
       }
 
@@ -618,7 +619,7 @@ export function ExperimentPanel({
       if (result.success && result.optimizedWorkflow) {
         setOptimizationResult(result);
         setOptimizeStatus('ready');
-        console.log('[Optimizer] Context usage:', {
+        logger.log('[Optimizer] Context usage:', {
           inputTokens: tokenCalc.inputTokens,
           maxOutput: tokenCalc.maxTokens,
           contextWindow: tokenCalc.contextWindow,
@@ -879,7 +880,7 @@ export function ExperimentPanel({
           userContent,
         );
       } catch (visionErr) {
-        console.warn('[ImageRating] Vision payload rejected, falling back to URL text prompt:', visionErr);
+        logger.warn('[ImageRating] Vision payload rejected, falling back to URL text prompt:', visionErr);
         const fallbackUserMessage = [
           `Rate these ${images.length} generated images. Use labels in your response.`,
           ...images.map((img, i) => `Image ${i}: ${img.label}\nURL: ${img.url}${img.durationMs && img.durationMs > 0 ? `\nGeneration time: ${(img.durationMs / 1000).toFixed(1)}s` : ''}`),
@@ -899,12 +900,12 @@ export function ExperimentPanel({
               history[0].ratings = result;
               history[0].bestVariant = result.bestVariant;
               localStorage.setItem('experiment-history', JSON.stringify(history));
-              console.log('[ImageRating] Saved ratings to experiment history');
+              logger.log('[ImageRating] Saved ratings to experiment history');
               setExperimentHistory(getExperimentHistory());
             }
           }
         } catch (historyErr) {
-          console.warn('[ImageRating] Could not save ratings to history:', historyErr);
+          logger.warn('[ImageRating] Could not save ratings to history:', historyErr);
         }
 
         toast.success(`AI rated ${result.ratings.length} images — best: ${result.bestVariant}`);
@@ -912,7 +913,7 @@ export function ExperimentPanel({
         toast.error(result.error || 'Failed to rate images');
       }
     } catch (err: any) {
-      console.error('[ImageRating] Error:', err);
+      logger.error('[ImageRating] Error:', err);
       toast.error(`Rating failed: ${err.message}`);
     } finally {
       setIsRating(false);
@@ -953,7 +954,7 @@ export function ExperimentPanel({
     const bestScore = best.weightedScore ?? best.scores.overall;
     toast.success(`Auto-picked ${best.variantLabel} based on AI rating (${bestScore}/10)!`);
 
-    console.log('[AutoPick] Applied best variant:', {
+    logger.log('[AutoPick] Applied best variant:', {
       label: best.variantLabel,
       score: best.weightedScore ?? best.scores.overall,
       reasoning: best.reasoning,
@@ -1525,7 +1526,7 @@ export function ExperimentPanel({
                 )}
                 {abCompareResult?.optimized.execution.success && onAcceptOptimized && optimizationResult?.optimizedWorkflow && (
                   <div className="mt-3 flex justify-end">
-                    <button onClick={() => onAcceptOptimized(optimizationResult.optimizedWorkflow)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-accent hover:bg-accent-hover text-accent-contrast text-xs transition-colors">
+                    <button onClick={() => optimizationResult.optimizedWorkflow && onAcceptOptimized(optimizationResult.optimizedWorkflow)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-accent hover:bg-accent-hover text-accent-contrast text-xs transition-colors">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Accept Optimized
                     </button>
                   </div>

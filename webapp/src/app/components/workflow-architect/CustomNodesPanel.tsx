@@ -11,7 +11,7 @@ interface CustomNodesPanelProps {
   hideTabs?: boolean;
 }
 
-function isGraphWorkflow(workflow: Record<string, unknown> | undefined): workflow is ComfyUIWorkflow {
+function isGraphWorkflow(workflow: unknown): workflow is ComfyUIWorkflow {
   if (!workflow || typeof workflow !== 'object') return false;
   const typed = workflow as Record<string, unknown>;
   return Array.isArray(typed.nodes) && Array.isArray(typed.links);

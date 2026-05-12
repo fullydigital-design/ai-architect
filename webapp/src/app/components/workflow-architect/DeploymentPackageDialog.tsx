@@ -22,6 +22,7 @@ import {
   type DeploymentPackageConfig,
 } from '../../../services/deployment-package-generator';
 import { lookupKnownModel } from '../../../data/known-models-db';
+import { logger } from '@/utils/logger';
 
 interface DeploymentPackageDialogProps {
   workflow: ComfyUIWorkflow;
@@ -67,7 +68,7 @@ export function DeploymentPackageDialog({
       toast.success('Deployment package downloaded');
       onClose();
     } catch (error: any) {
-      console.error('[DeploymentPackage] Failed to generate package', error);
+      logger.error('[DeploymentPackage] Failed to generate package', error);
       toast.error(`Failed to generate package: ${error?.message || 'Unknown error'}`);
     } finally {
       setGenerating(false);

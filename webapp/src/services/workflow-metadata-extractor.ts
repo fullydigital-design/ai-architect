@@ -6,6 +6,7 @@
 import { NODE_REGISTRY } from '../data/node-registry';
 import { getLiveNodeCache, getRawObjectInfo } from './comfyui-backend';
 import type { ModelEntry, PackEntry, WorkflowNoteMetadata, WorkflowStats } from './workflow-note-injector';
+import { logger } from '@/utils/logger';
 
 const MODEL_EXT_RE = /\.(safetensors|ckpt|pt|pth|bin|onnx|gguf)$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,7 +28,7 @@ export function extractWorkflowMetadata(
   try {
     autoDescription = generateWorkflowDescription(nodes);
   } catch (err) {
-    console.warn('[MetadataExtractor] Description generation failed:', err);
+    logger.warn('[MetadataExtractor] Description generation failed:', err);
     autoDescription = `Workflow with ${nodes.length} nodes.`;
   }
   const finalDescription = buildFinalDescription(description, autoDescription);

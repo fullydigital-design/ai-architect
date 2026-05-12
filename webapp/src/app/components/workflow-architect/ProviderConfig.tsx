@@ -719,7 +719,7 @@ export function ProviderConfig({
 
               {PROVIDER_ORDER.map(provider => {
                 const info = PROVIDER_INFO[provider];
-                const key = settings.keys[provider];
+                const key = settings.keys[provider] ?? '';
                 const isVisible = showKeys[provider] || false;
                 const hasKey = key.length > 0;
                 const isLocal = provider === 'lmstudio';
@@ -1038,7 +1038,7 @@ export function ProviderConfig({
                   {' '}
                   {PROVIDER_ORDER.map(p => (
                     MODEL_DISCOVERY_URLS[p] ? (
-                      <a key={p} href={MODEL_DISCOVERY_URLS[p]} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:text-accent-text">
+                      <a key={p} href={MODEL_DISCOVERY_URLS[p].url} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:text-accent-text">
                         {PROVIDER_INFO[p].name}
                       </a>
                     ) : null
