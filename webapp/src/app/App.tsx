@@ -2724,7 +2724,7 @@ ${getModificationExamples()}
     [settings.selectedModel, selectedModelProvider, settings.customModels],
   );
 
-  const executeOnComfyUI = useCallback((workflowToExecute: ComfyUIWorkflow) => {
+  const executeOnComfyUI = useCallback(async (workflowToExecute: ComfyUIWorkflow) => {
     if (!settings.comfyuiUrl) {
       toast.error('No ComfyUI URL configured');
       return;
@@ -2734,10 +2734,14 @@ ${getModificationExamples()}
     setLastExecutedWorkflowRef(null);
     setExecutionProgress({ status: 'queued', completedNodes: [] });
 
-    // VRAM hand-off: kick LM Studio off the GPU before ComfyUI starts loading
-    // its checkpoint. Fire-and-forget — the queue submission proceeds in
-    // parallel; ComfyUI's loader will see the freed VRAM by the time it runs.
-    void claimForComfyUI(settings);
+    // VRAM hand-off: AWAIT the LM Studio unload before queuing — if we
+    // race the queue submission against the unload, ComfyUI tries to
+    // load its checkpoint while LM Studio still owns ~22 GB and OOMs.
+    try {
+      await claimForComfyUI(settings);
+    } catch (err) {
+      logger.warn('[VRAM] claimForComfyUI failed; proceeding with queue anyway:', err);
+    }
 
     const { promise, cancel } = executeWorkflow(
       settings.comfyuiUrl,
