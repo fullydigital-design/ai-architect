@@ -86,6 +86,8 @@ interface ChatPanelProps {
   onStop?: () => void;
   onApplyBrainstormToBuild?: (brainstormContext: string) => void;
   onBrainstormBuild?: (selectedClassTypes: string[], workflowTitle: string, workflowSummary: string) => void;
+  onApproveCascade?: (messageId: string) => void;
+  onDeclineCascade?: (messageId: string) => void;
   onExtractNodes?: () => void;
   isExtracting?: boolean;
   pendingRecommendation?: (WorkflowRecommendation & { nodes: Array<RecommendedNode & { available: boolean }> }) | null;
@@ -182,6 +184,8 @@ export function ChatPanel({
   onStop,
   onApplyBrainstormToBuild,
   onBrainstormBuild,
+  onApproveCascade,
+  onDeclineCascade,
   onExtractNodes,
   isExtracting = false,
   pendingRecommendation,
@@ -606,6 +610,8 @@ export function ChatPanel({
                 learningPackId={learningPackId}
                 comfyuiUrl={comfyuiUrl}
                 onBrainstormBuild={handleRecommendationBuild}
+                onApproveCascade={onApproveCascade}
+                onDeclineCascade={onDeclineCascade}
               />
             ))}
             {isLoading && streamingContent && (
@@ -842,6 +848,80 @@ export function ChatPanel({
   );
 }
 
+// ---- Schema cascade approval card -------------------------------------------
+
+interface SchemaCascadeCardProps {
+  messageId: string;
+  request: NonNullable<Message['cascadeRequest']>;
+  onApprove?: (messageId: string) => void;
+  onDecline?: (messageId: string) => void;
+}
+
+function SchemaCascadeCard({ messageId, request, onApprove, onDecline }: SchemaCascadeCardProps) {
+  const { nodes, status } = request;
+
+  if (status === 'approved') {
+    return (
+      <div className="mt-2 rounded-sm border border-state-success/20 bg-state-success-muted/30 px-2.5 py-1.5">
+        <div className="text-[10px] text-state-success">
+          ✓ Schema cascade approved — fetched {nodes.length} node{nodes.length === 1 ? '' : 's'}
+        </div>
+      </div>
+    );
+  }
+  if (status === 'declined') {
+    return (
+      <div className="mt-2 rounded-sm border border-border-default bg-surface-secondary px-2.5 py-1.5">
+        <div className="text-[10px] text-content-muted">
+          Cascade declined — assistant continued without these {nodes.length} schema{nodes.length === 1 ? '' : 's'}.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-sm border border-accent/30 bg-accent/[0.06] p-2.5">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="text-[11px] font-medium text-accent-text">
+          Schema cascade requested
+        </div>
+        <div className="text-[9px] text-content-muted">
+          {nodes.length} node{nodes.length === 1 ? '' : 's'}
+        </div>
+      </div>
+      <div className="text-[10px] text-content-secondary mb-2">
+        The assistant wants the full schema (inputs/outputs/widgets) for these nodes before continuing:
+      </div>
+      <div className="flex flex-wrap gap-1 mb-2.5">
+        {nodes.map((nodeName) => (
+          <span
+            key={nodeName}
+            className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset border border-border-default text-[10px] font-mono text-content-primary"
+          >
+            {nodeName}
+          </span>
+        ))}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onApprove?.(messageId)}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-accent hover:bg-accent-hover text-accent-contrast text-[10px] transition-colors"
+        >
+          Approve & continue
+        </button>
+        <button
+          type="button"
+          onClick={() => onDecline?.(messageId)}
+          className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border-default text-content-muted hover:text-content-primary text-[10px] transition-colors"
+        >
+          Decline
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ---- ChatMessage with pack tag support --------------------------------------
 
 interface ChatMessageProps {
@@ -863,6 +943,8 @@ interface ChatMessageProps {
   learnedPackIds?: Set<string>;
   learningPackId?: string | null;
   comfyuiUrl?: string;
+  onApproveCascade?: (messageId: string) => void;
+  onDeclineCascade?: (messageId: string) => void;
 }
 
 function ChatMessage({
@@ -884,6 +966,8 @@ function ChatMessage({
   learnedPackIds,
   learningPackId,
   comfyuiUrl,
+  onApproveCascade,
+  onDeclineCascade,
 }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const modelSlots = message.workflowAnalysis?.modelSlots ?? [];
@@ -1050,6 +1134,14 @@ function ChatMessage({
             urlTransform={packUrlTransform}
           />
         </div>
+      )}
+      {!isUser && message.cascadeRequest && (
+        <SchemaCascadeCard
+          messageId={message.id}
+          request={message.cascadeRequest}
+          onApprove={onApproveCascade}
+          onDecline={onDeclineCascade}
+        />
       )}
       {!isUser && message.recommendation && (
         <RecommendationCard

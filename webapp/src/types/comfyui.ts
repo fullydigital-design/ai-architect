@@ -133,6 +133,11 @@ export interface Message {
   detectedPacks?: DetectedPack[];
   /** Brainstorm planner recommendations parsed from json:recommended-nodes blocks */
   recommendation?: WorkflowRecommendation;
+  /** Pending / resolved schema-cascade request emitted by the assistant. */
+  cascadeRequest?: {
+    nodes: string[];
+    status: 'pending' | 'approved' | 'declined';
+  };
 }
 
 export interface RequiredNode {

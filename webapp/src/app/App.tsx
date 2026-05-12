@@ -1310,9 +1310,11 @@ ${getModificationExamples()}
     const currentWorkflowNodeCount = currentWorkflow?.nodes?.length ?? 0;
     const currentStateNote = liveCache
       ? [
-          `- Selected node schemas available to you: **${schemaContext.selectedNodeCount}** node${schemaContext.selectedNodeCount === 1 ? '' : 's'} (mode: ${schemaContext.liveSchemaMode}).`,
+          `- **What you can see in this turn: ${schemaContext.selectedNodeCount} node${schemaContext.selectedNodeCount === 1 ? '' : 's'}** (Schema Drawer mode: ${schemaContext.liveSchemaMode}).`,
           `- Selected packs: ${schemaContext.loadedPackTitles.length > 0 ? schemaContext.loadedPackTitles.join(', ') : 'ComfyUI Core only'}.`,
           `- Current workflow in canvas: ${currentWorkflowNodeCount > 0 ? `${currentWorkflowNodeCount} nodes loaded` : 'empty'}.`,
+          ``,
+          `When the user asks "how many nodes" or "what nodes do you see", answer **${schemaContext.selectedNodeCount}** — that's the count of nodes currently exposed to you, regardless of how many are installed in ComfyUI overall (the installation total is separate context, not your working set).`,
         ].join('\n')
       : '';
     return buildBrainstormSystemPrompt(
@@ -1557,7 +1559,7 @@ ${getModificationExamples()}
         let fullResponse = '';
         const abortController = new AbortController();
         aiAbortControllerRef.current = abortController;
-        let response = await callAI({
+        const response = await callAI({
           settings,
           messages: conversationHistory,
           onChunk: (chunk) => {
@@ -1567,48 +1569,10 @@ ${getModificationExamples()}
           systemPromptOverride,
           signal: abortController.signal,
         });
-        let finalResponse = fullResponse || response.text;
-        let cascadeInputChars = 0;
-        let cascadeOutputChars = 0;
-
-        // Schema-cascade loop: if the assistant requested full schemas via a
-        // <NEED_SCHEMAS> marker, resolve them and re-call once with the result
-        // appended as a synthetic user message. Single round to keep latency
-        // and tokens bounded.
-        const cascadeRequest = parseSchemaCascadeRequest(finalResponse);
-        if (cascadeRequest) {
-          const resolved = resolveLiveSchemas(cascadeRequest.requested);
-          logCascadeResolution(resolved);
-          const cascadeReply = buildSchemaCascadeReply(resolved);
-          const assistantTurn = stripSchemaCascadeMarker(finalResponse);
-          const cascadeHistory = [
-            ...conversationHistory,
-            { role: 'assistant' as const, content: assistantTurn || cascadeRequest.rawBlock },
-            { role: 'user' as const, content: cascadeReply },
-          ];
-          // Reset the streaming buffer so only the final, post-cascade answer
-          // ends up in the user-visible message.
-          fullResponse = '';
-          setStreamingContent('');
-          response = await callAI({
-            settings,
-            messages: cascadeHistory,
-            onChunk: (chunk) => {
-              fullResponse += chunk;
-              setStreamingContent((prev) => prev + chunk);
-            },
-            systemPromptOverride,
-            signal: abortController.signal,
-          });
-          finalResponse = fullResponse || response.text;
-          cascadeInputChars = cascadeReply.length + assistantTurn.length;
-          cascadeOutputChars = finalResponse.length;
-          logger.log(`[Cascade] ${describeCascade(resolved)} (round 2 reply: ${cascadeOutputChars} chars)`);
-        }
+        const finalResponse = fullResponse || response.text;
 
         const inputChars = (systemPromptOverride?.length ?? 0)
-          + conversationHistory.reduce((sum, message) => sum + (message.content?.length ?? 0), 0)
-          + cascadeInputChars;
+          + conversationHistory.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
         trackTokenUsage(
           settings.selectedModel,
           response.usage,
@@ -1616,6 +1580,10 @@ ${getModificationExamples()}
           finalResponse.length,
         );
         const parsedRecommendation = parseRecommendedNodes(finalResponse);
+        // Detect schema-cascade request. Render the strip-marker text + an
+        // approval card on the message — the user clicks Approve to actually
+        // fetch the schemas and continue the conversation.
+        const cascadeRequest = parseSchemaCascadeRequest(finalResponse);
         const displayText = stripRecommendationBlock(stripSchemaCascadeMarker(finalResponse));
         const liveNodeMap = new Map<string, unknown>(
           Object.keys(getLiveNodeCache()?.nodes || {}).map((classType) => [classType, true]),
@@ -1627,15 +1595,23 @@ ${getModificationExamples()}
           }
           : undefined;
         const brainstormDisplayContent = displayText
-          || (recommendation ? 'Recommended workflow nodes captured.' : finalResponse);
+          || (cascadeRequest
+            ? 'I need full schemas for some nodes before answering — approve the cascade below to continue.'
+            : (recommendation ? 'Recommended workflow nodes captured.' : finalResponse));
         const assistantMessage: Message = {
           id: generateId(),
           role: 'assistant',
           content: brainstormDisplayContent,
           timestamp: Date.now(),
           recommendation,
+          cascadeRequest: cascadeRequest
+            ? { nodes: cascadeRequest.requested, status: 'pending' }
+            : undefined,
         };
         setMessages((prev) => [...prev, assistantMessage]);
+        if (cascadeRequest) {
+          logger.log(`[Cascade] Pending approval for ${cascadeRequest.requested.length} node(s): ${cascadeRequest.requested.join(', ')}`);
+        }
         return;
       }
 
@@ -1923,6 +1899,105 @@ ${getModificationExamples()}
     validationOptions,
     schemaSelectorState,
   ]);
+
+  const handleApproveCascade = useCallback(async (messageId: string) => {
+    const targetIndex = messages.findIndex((m) => m.id === messageId);
+    if (targetIndex < 0) return;
+    const target = messages[targetIndex];
+    if (!target.cascadeRequest || target.cascadeRequest.status !== 'pending') return;
+
+    const resolved = resolveLiveSchemas(target.cascadeRequest.nodes);
+    logCascadeResolution(resolved);
+    const cascadeReply = buildSchemaCascadeReply(resolved);
+
+    // Mark the request as approved on the original message.
+    setMessages((prev) => prev.map((m) => m.id === messageId
+      ? { ...m, cascadeRequest: { ...m.cascadeRequest!, status: 'approved' as const } }
+      : m,
+    ));
+
+    // Rebuild the conversation history up to and including the assistant turn
+    // that produced the cascade request, then append the synthetic user reply.
+    const historyUpTo = messages
+      .slice(0, targetIndex + 1)
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const cascadeHistory = [
+      ...historyUpTo,
+      { role: 'user' as const, content: cascadeReply },
+    ];
+
+    let systemPromptOverride: string | undefined;
+    try {
+      systemPromptOverride = buildBrainstormPrompt(cascadeReply);
+    } catch {
+      systemPromptOverride = undefined;
+    }
+
+    setIsLoading(true);
+    setStreamingContent('');
+    const abortController = new AbortController();
+    aiAbortControllerRef.current = abortController;
+    let fullResponse = '';
+    try {
+      const response = await callAI({
+        settings,
+        messages: cascadeHistory,
+        onChunk: (chunk) => {
+          fullResponse += chunk;
+          setStreamingContent((prev) => prev + chunk);
+        },
+        systemPromptOverride,
+        signal: abortController.signal,
+      });
+      const finalResponse = fullResponse || response.text;
+      const inputChars = (systemPromptOverride?.length ?? 0)
+        + cascadeHistory.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
+      trackTokenUsage(settings.selectedModel, response.usage, inputChars, finalResponse.length);
+
+      const parsedRecommendation = parseRecommendedNodes(finalResponse);
+      const displayText = stripRecommendationBlock(stripSchemaCascadeMarker(finalResponse));
+      const liveNodeMap = new Map<string, unknown>(
+        Object.keys(getLiveNodeCache()?.nodes || {}).map((classType) => [classType, true]),
+      );
+      const recommendation = parsedRecommendation
+        ? {
+          ...parsedRecommendation,
+          nodes: validateRecommendedNodes(parsedRecommendation.nodes, liveNodeMap),
+        }
+        : undefined;
+      const nextCascade = parseSchemaCascadeRequest(finalResponse);
+      const cascadeBadge = describeCascade(resolved);
+      const assistantMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: (displayText || (recommendation ? 'Recommended workflow nodes captured.' : finalResponse))
+          + `\n\n_${cascadeBadge}_`,
+        timestamp: Date.now(),
+        recommendation,
+        cascadeRequest: nextCascade
+          ? { nodes: nextCascade.requested, status: 'pending' }
+          : undefined,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      const error = err as Error;
+      if (error?.name !== 'AbortError') {
+        logger.error('[Cascade] follow-up call failed:', error);
+        toast.error(error.message || 'Schema cascade follow-up failed');
+      }
+    } finally {
+      setIsLoading(false);
+      setStreamingContent('');
+      aiAbortControllerRef.current = null;
+    }
+  }, [messages, buildBrainstormPrompt, settings, trackTokenUsage]);
+
+  const handleDeclineCascade = useCallback((messageId: string) => {
+    setMessages((prev) => prev.map((m) => m.id === messageId
+      ? { ...m, cascadeRequest: { ...m.cascadeRequest!, status: 'declined' as const } }
+      : m,
+    ));
+  }, []);
 
   const handleStopGeneration = useCallback(() => {
     if (aiAbortControllerRef.current) {
@@ -3102,6 +3177,8 @@ ${getModificationExamples()}
                 onStop={handleStopGeneration}
                 onApplyBrainstormToBuild={handleApplyBrainstormToBuild}
                 onBrainstormBuild={handleBrainstormBuild}
+                onApproveCascade={handleApproveCascade}
+                onDeclineCascade={handleDeclineCascade}
                 onExtractNodes={handleExtractNodes}
                 isExtracting={isExtractingNodes}
                 pendingRecommendation={pendingRecommendation}
