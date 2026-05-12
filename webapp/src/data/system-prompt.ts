@@ -206,6 +206,25 @@ export async function buildSystemPromptWithPacks(
 3. Use exact output slot indices from schema. Never guess.
 4. Before returning, verify all required connection inputs are satisfied.
 
+### FLUX wiring rules (MANDATORY — these have been a frequent failure)
+- **CLIPTextEncodeFlux** needs four inputs: \`clip\` (CLIP connection), \`clip_l\` (STRING widget), \`t5xxl\` (STRING widget), \`guidance\` (FLOAT widget). The \`clip\` input is a CONNECTION, NOT a widget. It MUST come from the CLIP output of CheckpointLoaderSimple / UNETLoader+DualCLIPLoader. This applies to BOTH the positive and the negative (empty-string) prompt encoder.
+- Producing a CLIPTextEncodeFlux node without a wired \`clip\` input causes a runtime \`'NoneType' object has no attribute 'tokenize'\` error. Never do this.
+- Correct API-format JSON skeleton for one CLIPTextEncodeFlux node, where node "1" is the loader:
+  \`\`\`json
+  "2": {
+    "class_type": "CLIPTextEncodeFlux",
+    "inputs": {
+      "clip": ["1", 1],
+      "clip_l": "your positive prompt here",
+      "t5xxl": "your positive prompt here",
+      "guidance": 3.5
+    }
+  }
+  \`\`\`
+  CheckpointLoaderSimple outputs: slot 0 = MODEL, slot 1 = CLIP, slot 2 = VAE — so \`["1", 1]\` is the CLIP wire.
+- The negative encoder uses the same \`clip\` connection. Empty strings are fine for the text widgets, but the \`clip\` connection is NOT optional.
+- **Same rule applies to all encoder nodes**: CLIPTextEncode, CLIPTextEncodeSDXL, CLIPTextEncodeSD3, etc. — their \`clip\` input is always a connection from a CLIP source, never a widget.
+
 ### Widget Value Rules
 1. Use exact input names as keys in the \`inputs\` object.
 2. For COMBO inputs, use only allowed options.

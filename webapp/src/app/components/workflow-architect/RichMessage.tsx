@@ -118,6 +118,36 @@ function hasSignificantSteps(sections: ParsedSection[]): boolean {
 
 // ---- Connection type badge inline replacement --------------------------------
 
+/**
+ * Detect "EMOJI **Heading**" paragraphs — the AI uses them as workflow section
+ * markers (◆ Full Pipeline Summary, ⚡ Why This Architecture Wins, ⚙️ Tuning Tips,
+ * 🧩 Required Models, etc). Returns the emoji + label if matched, else null.
+ *
+ * Accepts the ReactMarkdown `children` array, which for "◆ **Foo**" looks like:
+ *   ["◆ ", <strong>Foo</strong>]
+ */
+const SECTION_EMOJI_RE = /^\s*([☀-➿\u{1F300}-\u{1F9FF}\u{1FA70}-\u{1FAFF}✨⭐✨⚡⚙☕☘☠♦◆◇❖⬜⬛])\s*$/u;
+
+function detectSectionHeaderParagraph(children: any): { emoji: string; label: string } | null {
+  const arr = Array.isArray(children) ? children : [children];
+  if (arr.length !== 2) return null;
+  const first = arr[0];
+  const second = arr[1];
+  if (typeof first !== 'string') return null;
+  const emojiMatch = first.match(SECTION_EMOJI_RE);
+  if (!emojiMatch) return null;
+  // Second child must be a single <strong> element
+  if (!second || typeof second !== 'object' || (second as { type?: unknown }).type !== 'strong') return null;
+  const strongChildren = (second as { props?: { children?: unknown } }).props?.children;
+  const label = typeof strongChildren === 'string'
+    ? strongChildren
+    : Array.isArray(strongChildren) && strongChildren.every((c) => typeof c === 'string')
+      ? strongChildren.join('')
+      : '';
+  if (!label) return null;
+  return { emoji: emojiMatch[1], label };
+}
+
 /** Replace (TYPE) patterns with badge markers for post-processing */
 const KNOWN_TYPES = [
   'MODEL', 'CLIP', 'VAE', 'CONDITIONING', 'LATENT', 'IMAGE', 'MASK',
@@ -397,8 +427,24 @@ function buildMarkdownComponents(
       </h4>
     ),
 
-    // Enhanced paragraph with inline processing
+    // Enhanced paragraph with inline processing.
+    // Special case: a paragraph that is just "EMOJI **Heading**" (the AI's
+    // common pattern for workflow summary sections) becomes a section header
+    // card instead of a regular paragraph.
     p: ({ children, ...props }: any) => {
+      const sectionHeader = detectSectionHeaderParagraph(children);
+      if (sectionHeader) {
+        return (
+          <div
+            className="mt-3 mb-1.5 flex items-center gap-2 rounded-md border border-accent/20 bg-accent/[0.06] px-2.5 py-1.5"
+          >
+            <span className="text-[14px] leading-none shrink-0">{sectionHeader.emoji}</span>
+            <span className="text-[12.5px] font-semibold text-content-primary">
+              {sectionHeader.label}
+            </span>
+          </div>
+        );
+      }
       const processed = processChildNodes(children);
       return (
         <p className="my-1.5 text-[12.5px] text-content-primary leading-relaxed" {...props}>
@@ -510,27 +556,39 @@ function buildMarkdownComponents(
 
     // Enhanced table
     table: ({ children, ...props }: any) => (
-      <div className="my-2 rounded-lg border border-border-strong/50 overflow-hidden overflow-x-auto">
-        <table className="w-full text-[11px]" {...props}>
+      <div className="my-2 rounded-lg border border-border-strong/60 overflow-hidden overflow-x-auto bg-surface-inset/40">
+        <table className="w-full text-[11px] border-collapse" {...props}>
           {children}
         </table>
       </div>
     ),
 
     thead: ({ children, ...props }: any) => (
-      <thead className="bg-surface-secondary/50" {...props}>
+      <thead className="bg-surface-secondary/70 border-b border-border-strong/60" {...props}>
         {children}
       </thead>
     ),
 
+    tbody: ({ children, ...props }: any) => (
+      <tbody className="[&>tr:nth-child(even)]:bg-surface-secondary/25" {...props}>
+        {children}
+      </tbody>
+    ),
+
+    tr: ({ children, ...props }: any) => (
+      <tr className="border-b border-border-default/40 last:border-b-0" {...props}>
+        {children}
+      </tr>
+    ),
+
     th: ({ children, ...props }: any) => (
-      <th className="px-3 py-1.5 text-left text-content-secondary border-b border-border-strong/50" {...props}>
+      <th className="px-2.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-content-secondary" {...props}>
         {children}
       </th>
     ),
 
     td: ({ children, ...props }: any) => (
-      <td className="px-3 py-1.5 text-content-primary border-b border-border-subtle" {...props}>
+      <td className="px-2.5 py-1.5 align-top text-content-primary" {...props}>
         {children}
       </td>
     ),
