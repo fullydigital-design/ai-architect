@@ -1568,6 +1568,8 @@ ${getModificationExamples()}
           },
           systemPromptOverride,
           signal: abortController.signal,
+          maxOutputTokens: 1500,
+          disableThinking: true,
         });
         const finalResponse = fullResponse || response.text;
 
@@ -1948,6 +1950,8 @@ ${getModificationExamples()}
         },
         systemPromptOverride,
         signal: abortController.signal,
+        maxOutputTokens: 2000,
+        disableThinking: true,
       });
       const finalResponse = fullResponse || response.text;
       const inputChars = (systemPromptOverride?.length ?? 0)

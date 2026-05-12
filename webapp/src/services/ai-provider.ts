@@ -365,6 +365,14 @@ interface AICallOptions {
   systemPromptOverride?: string;
   /** AbortSignal for cancelling the in-flight request */
   signal?: AbortSignal;
+  /** Hard cap on completion tokens for this call (overrides the model's default). */
+  maxOutputTokens?: number;
+  /**
+   * Suppress chain-of-thought emission on reasoning models (Qwen3, DeepSeek-R1, etc).
+   * LM Studio passes `chat_template_kwargs.enable_thinking = false` through to the
+   * underlying llama.cpp template; non-reasoning providers ignore it.
+   */
+  disableThinking?: boolean;
 }
 
 export interface AITokenUsage {
@@ -456,14 +464,17 @@ function makeThinkStreamFilter(onChunk: (chunk: string) => void): (chunk: string
 }
 
 export async function callAI(options: AICallOptions): Promise<AICallResult> {
-  const { settings, messages, onChunk, systemPromptOverride, signal } = options;
+  const { settings, messages, onChunk, systemPromptOverride, signal, maxOutputTokens, disableThinking } = options;
   const provider = getProviderForModel(settings.selectedModel, settings.customModels);
   const apiKey = settings.keys[provider] ?? '';
   const contextWindow = getModelContextWindow(settings.selectedModel);
-  const maxOutput = getMaxOutputTokens(settings.selectedModel);
+  const modelMaxOutput = getMaxOutputTokens(settings.selectedModel);
+  const effectiveMaxOutput = typeof maxOutputTokens === 'number'
+    ? Math.max(64, Math.min(maxOutputTokens, modelMaxOutput))
+    : modelMaxOutput;
 
   logger.log(
-    `[AI] Model: ${settings.selectedModel} | Context: ${contextWindow.toLocaleString()} | Max output: ${maxOutput.toLocaleString()} | Provider: ${provider}`,
+    `[AI] Model: ${settings.selectedModel} | Context: ${contextWindow.toLocaleString()} | Max output: ${effectiveMaxOutput.toLocaleString()} | Provider: ${provider}${disableThinking ? ' | thinking: off' : ''}`,
   );
 
   if (!apiKey && provider !== 'lmstudio') {
@@ -490,16 +501,18 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
     model: settings.selectedModel,
     inputTokens: tokenCalc.inputTokens,
     contextWindow: tokenCalc.contextWindow,
-    maxOutputTokens: maxOutput,
+    maxOutputTokens: effectiveMaxOutput,
   });
 
   // Filter <think>...</think> blocks from streaming output (Qwen3, DeepSeek-R1, etc.)
   const filteredOnChunk = onChunk ? makeThinkStreamFilter(onChunk) : undefined;
 
+  const callExtras = { maxOutputTokens: effectiveMaxOutput, disableThinking };
+
   let result: AICallResult;
   switch (provider) {
     case 'openai':
-      result = await callOpenAI(apiKey, settings.selectedModel, allMessages, filteredOnChunk, undefined, signal);
+      result = await callOpenAI(apiKey, settings.selectedModel, allMessages, filteredOnChunk, undefined, signal, callExtras);
       break;
     case 'anthropic':
       result = await callAnthropic(apiKey, settings.selectedModel, allMessages, filteredOnChunk, signal);
@@ -525,7 +538,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
       } catch {
         lmBase = `${lmHost}/api/v1`;
       }
-      result = await callOpenAI('lm-studio', settings.selectedModel, allMessages, filteredOnChunk, lmBase, signal);
+      result = await callOpenAI('lm-studio', settings.selectedModel, allMessages, filteredOnChunk, lmBase, signal, callExtras);
       break;
     }
     default:
@@ -567,9 +580,13 @@ async function callOpenAI(
   onChunk?: (chunk: string) => void,
   baseUrl = 'https://api.openai.com/v1',
   signal?: AbortSignal,
+  extras?: { maxOutputTokens?: number; disableThinking?: boolean },
 ): Promise<AICallResult> {
-  const maxOutput = getMaxOutputTokens(model);
+  const maxOutput = typeof extras?.maxOutputTokens === 'number'
+    ? extras.maxOutputTokens
+    : getMaxOutputTokens(model);
   const isOfficialOpenAI = baseUrl.includes('api.openai.com');
+  const isLocalLMStudio = !isOfficialOpenAI && apiKey === 'lm-studio';
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -585,6 +602,12 @@ async function callOpenAI(
       ...(isOfficialOpenAI
         ? { stream_options: onChunk ? { include_usage: true } : undefined, max_completion_tokens: maxOutput }
         : { max_tokens: maxOutput }
+      ),
+      // LM Studio (llama.cpp template) honors chat_template_kwargs.enable_thinking
+      // for Qwen3 / DeepSeek-R1 / similar. Other providers ignore unknown fields.
+      ...(isLocalLMStudio && extras?.disableThinking
+        ? { chat_template_kwargs: { enable_thinking: false } }
+        : {}
       ),
       temperature: 0.3,
     }),
