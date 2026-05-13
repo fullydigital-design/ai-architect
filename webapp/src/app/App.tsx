@@ -44,6 +44,7 @@ import {
   logCascadeResolution,
 } from '../services/schema-cascade';
 import { claimForAI, claimForComfyUI, markVRAMIdle } from '../services/vram-coordinator';
+import { findPackSwapCandidates, buildPackSwapCandidateSection } from '../services/pack-swap-candidates';
 import {
   buildNodeExtractionPrompt,
   parseRecommendedNodes,
@@ -1379,6 +1380,27 @@ If the user asks to convert to native ComfyUI, use this mapping:
 - SwarmSaveImageWS → SaveImage`
       : '';
 
+    // Pack-swap auto-expansion: if the user's prompt asks for a pack swap
+    // ("with swarmui nodes", "use the kjnodes variant", etc.) we look up the
+    // target pack's nodes in the live cache and append their FULL schemas to
+    // the prompt. This is the fix for the symptom where the AI emitted
+    // SwarmKSampler but used KSampler's widget names — it didn't have the
+    // SwarmKSampler schema loaded.
+    let packSwapSection = '';
+    if (userRequestedTypeReplacement(userMessage)) {
+      const finding = findPackSwapCandidates(userMessage, workflow, selectorClassifiedPacks);
+      packSwapSection = buildPackSwapCandidateSection(finding);
+      if (finding.schemas.length > 0) {
+        logger.log(
+          `[PackSwap] Injected ${finding.schemas.length} replacement-candidate schema(s) from ${finding.packTitles.join(', ')} into modification prompt`,
+        );
+      } else if (finding.packTitles.length > 0) {
+        logger.warn(
+          `[PackSwap] Target pack(s) identified (${finding.packTitles.join(', ')}) but no role-matched candidates found in the live cache.`,
+        );
+      }
+    }
+
     return `${basePrompt}
 
 You are modifying an EXISTING workflow.
@@ -1388,6 +1410,7 @@ ${summary.text}
 
 ${preservationManifest}
 ${swarmNativeMappingNote ? `\n\n${swarmNativeMappingNote}` : ''}
+${packSwapSection}
 
 ${getOperationFormatReference()}
 
@@ -1398,6 +1421,7 @@ ${getModificationExamples()}
     buildSchemaSection,
     getEffectivePromptLibraryMode,
     modelLibraryPromptSection,
+    selectorClassifiedPacks,
     schemaSelectorState,
     useLibraryReferences,
   ]);
