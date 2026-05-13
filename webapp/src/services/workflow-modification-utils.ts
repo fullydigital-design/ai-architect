@@ -17,7 +17,7 @@ export function detectRequestMode(
   const text = userMessage.toLowerCase();
 
   const createSignals = /\b(create|build|generate|new workflow|from scratch|start fresh|blank workflow)\b/i;
-  const modifySignals = /\b(add|change|replace|remove|swap|increase|decrease|set|update|modify|adjust|tweak|fix|insert|delete|bypass|connect|disconnect|move|switch|upscale|lora|controlnet|before|after|between|node #\d+)\b/i;
+  const modifySignals = /\b(add|change|replace|remove|swap|increase|decrease|set|update|modify|adjust|tweak|fix|insert|delete|bypass|connect|disconnect|move|switch|upscale|lora|controlnet|before|after|between|node #\d+|enhance|improve|integrate|extend|refine|optimi[sz]e)\b/i;
 
   if (createSignals.test(text)) return 'create';
   if (modifySignals.test(text)) return 'modify';

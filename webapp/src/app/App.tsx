@@ -2483,20 +2483,36 @@ ${getModificationExamples()}
       .slice(-3)
       .join('\n\n');
 
-    const buildPrompt = [
-      `Build the following workflow: "${workflowTitle || 'Untitled Workflow'}"`,
-      '',
-      workflowSummary || 'Use the selected recommended nodes and produce a production-ready workflow.',
-      '',
-      `Use exactly these nodes (schemas are loaded): ${normalizedClassTypes.join(', ')}`,
-      '',
-      'Generate the complete workflow with all connections and correct parameter values.',
-      'Use real model filenames from the available models list.',
-      recentBrainstormContext ? `\n--- Brainstorm Context ---\n${recentBrainstormContext}` : '',
-    ].filter(Boolean).join('\n');
+    const isEnhancement = !!currentWorkflow && (currentWorkflow.nodes?.length ?? 0) > 0;
+    const buildPrompt = isEnhancement
+      ? [
+          `Enhance the following workflow: "${workflowTitle || 'Untitled Workflow'}"`,
+          '',
+          workflowSummary || 'Integrate the selected nodes into the current workflow.',
+          '',
+          `Integrate these nodes (schemas are loaded): ${normalizedClassTypes.join(', ')}`,
+          '',
+          'Preserve the existing workflow structure. Modify only what needs to change to apply the improvements:',
+          '- Keep class_types and node IDs of existing nodes that aren\'t being replaced.',
+          '- Add the new nodes in the right positions and wire them to the existing graph.',
+          '- Update widget values only on nodes the improvements explicitly touch.',
+          '- Bump last_node_id / last_link_id past existing maxima for any newly added node/link.',
+          recentBrainstormContext ? `\n--- Brainstorm Context ---\n${recentBrainstormContext}` : '',
+        ].filter(Boolean).join('\n')
+      : [
+          `Build the following workflow: "${workflowTitle || 'Untitled Workflow'}"`,
+          '',
+          workflowSummary || 'Use the selected recommended nodes and produce a production-ready workflow.',
+          '',
+          `Use exactly these nodes (schemas are loaded): ${normalizedClassTypes.join(', ')}`,
+          '',
+          'Generate the complete workflow with all connections and correct parameter values.',
+          'Use real model filenames from the available models list.',
+          recentBrainstormContext ? `\n--- Brainstorm Context ---\n${recentBrainstormContext}` : '',
+        ].filter(Boolean).join('\n');
 
     setPendingBuildApplyMessage(buildPrompt);
-  }, [messages, selectorClassifiedPacks]);
+  }, [messages, selectorClassifiedPacks, currentWorkflow]);
 
   const handleCloseExtraction = useCallback(() => {
     setPendingRecommendation(null);
