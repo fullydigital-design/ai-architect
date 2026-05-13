@@ -382,9 +382,20 @@ export interface AITokenUsage {
   estimated?: boolean;
 }
 
+export interface AICallEmptyDiagnostic {
+  /** finish_reason from the last SSE chunk (length / stop / content_filter / ...). */
+  finishReason?: string;
+  /** First error payload surfaced inside the SSE stream, if any. */
+  streamError?: string;
+  /** Heuristic explanation derived from the above, safe to display to the user. */
+  hint?: string;
+}
+
 export interface AICallResult {
   text: string;
   usage: AITokenUsage | null;
+  /** Populated when the model produced zero visible content. */
+  emptyDiagnostic?: AICallEmptyDiagnostic;
 }
 
 // ===== Think-block filtering (Qwen3 / reasoning models) =====
@@ -550,8 +561,17 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   // accumulates raw deltas independently of the filtered onChunk callback.
   const cleanText = stripThinkBlocks(result.text);
 
+  // If stripping reasoning leaves nothing visible, attach a diagnostic so the
+  // caller can show a useful error instead of an empty bubble.
+  let diagnostic = result.emptyDiagnostic;
+  if (!diagnostic && cleanText.trim().length === 0 && result.text.length > 0) {
+    diagnostic = {
+      hint: 'Model produced only reasoning (<think>) tokens, no visible answer. Disable thinking in LM Studio (Server → reasoning toggle) or raise max output tokens.',
+    };
+  }
+
   if (result.usage) {
-    return { ...result, text: cleanText };
+    return { ...result, text: cleanText, emptyDiagnostic: diagnostic };
   }
 
   const estimatedInput = Math.max(0, Math.round(joinedInput.length * 0.75));
@@ -566,6 +586,7 @@ export async function callAI(options: AICallOptions): Promise<AICallResult> {
   return {
     text: cleanText,
     usage: estimatedUsage,
+    emptyDiagnostic: diagnostic,
   };
 }
 
@@ -874,9 +895,45 @@ async function readOpenAIStream(
       streamUsage ? `usage_in=${streamUsage.inputTokens} usage_out=${streamUsage.outputTokens}` : 'usage=(missing)',
     ].filter(Boolean).join(' | ');
     logger.warn(`[AI] Empty completion from streaming endpoint — ${detail}`);
+    const hint = buildEmptyCompletionHint(finishReason, firstErrorSurfaced, streamUsage);
+    return {
+      text: full,
+      usage: streamUsage,
+      emptyDiagnostic: {
+        finishReason: finishReason || undefined,
+        streamError: firstErrorSurfaced || undefined,
+        hint,
+      },
+    };
   }
 
   return { text: full, usage: streamUsage };
+}
+
+function buildEmptyCompletionHint(
+  finishReason: string,
+  streamError: string,
+  usage: AITokenUsage | null,
+): string {
+  if (finishReason === 'length') {
+    const out = usage?.outputTokens ?? 0;
+    return out > 0
+      ? `Hit the output-token cap (${out} reasoning tokens, 0 visible). Disable thinking in LM Studio (Server → reasoning toggle) or raise max output.`
+      : 'Output-token cap reached before any visible text — likely a long <think> block. Disable thinking in LM Studio or raise max output.';
+  }
+  if (finishReason === 'content_filter') {
+    return 'The provider blocked the response with a content filter.';
+  }
+  if (streamError) {
+    if (/no user query found|template/i.test(streamError)) {
+      return 'Chat template rejected the conversation shape. This usually means stale system-only history — start a fresh chat.';
+    }
+    return `Server returned an error mid-stream: ${streamError}`;
+  }
+  if (!finishReason) {
+    return 'Stream closed with no chunks and no finish_reason — usually a chat-template error. Check LM Studio server logs.';
+  }
+  return `Finished with reason "${finishReason}" but produced no content.`;
 }
 
 async function readAnthropicStream(

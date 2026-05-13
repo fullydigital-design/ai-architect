@@ -1784,13 +1784,18 @@ ${getModificationExamples()}
         if (!hasMeaningfulContent) {
           // Surface the empty-completion to the user with a retry affordance
           // instead of inserting a silent empty bubble.
+          const diag = response.emptyDiagnostic;
+          const baseLine = 'The AI returned an empty response.';
+          const reason = diag?.hint
+            ? `${baseLine} ${diag.hint}`
+            : `${baseLine} This usually means the model hit its chat-template limits, a content filter, or ran out of output tokens. Console has the diagnostic.`;
           const errorMessage: Message = {
             id: generateId(),
             role: 'assistant',
             content: '',
             timestamp: Date.now(),
             error: {
-              reason: 'The AI returned an empty response. This usually means the model hit its chat-template limits, a content filter, or ran out of output tokens. Console has the diagnostic.',
+              reason,
               retryable: true,
             },
           };
