@@ -176,14 +176,22 @@ export function buildPackNameListSection(
 
   const lines: string[] = [];
   lines.push('');
-  lines.push('## ACTUAL NODES IN REQUESTED PACK(S) — pick recommendations FROM THIS LIST');
+  lines.push('## ACTUAL NODES IN REQUESTED PACK(S) — pick specific class_types FROM THIS LIST');
   lines.push('');
   lines.push(
-    `You mentioned ${targets.map((p) => p.title).join(', ')}. Below are the EXACT class_types that exist in those packs (from the live /object_info cache). When you emit a \`json:recommended-nodes\` block, you MUST use class_types from THIS list. Do NOT invent node names — anything not in this list won't render as a selectable option in the user's recommendation card.`,
+    `You mentioned ${targets.map((p) => p.title).join(', ')}, which the user already has INSTALLED. Below are the EXACT class_types that exist in those packs (from live /object_info).`,
   );
   lines.push('');
+  lines.push('Required response shape for "what nodes can we use from <pack>" / "improve with <pack> nodes":');
+  lines.push('');
+  lines.push('1. **Pick 3–6 specific class_types** from the lists below that fit the user\'s goal. Do NOT pick all of them; choose role-appropriate ones for the current workflow.');
+  lines.push('2. For EACH picked class_type, write ONE LINE:  `**ClassTypeName** — what it does, why it helps here.` (use the literal class_type as a code-style heading so the chat renders a chip).');
+  lines.push('3. End with a `json:recommended-nodes` block containing ONLY those picked class_types. The card renders one selectable row per node — keep it tight.');
+  lines.push('');
+  lines.push('Do NOT use the "Recommended: [Name]" download-template card for this — that template is for fresh model/pack DOWNLOADS, not for picking specific nodes from an already-installed pack. Do NOT invent class_types — anything not in this list will render as an unselectable warning row in the card.');
+  lines.push('');
   for (const pack of targets) {
-    lines.push(`### ${pack.title} — ${pack.nodeNames.length} nodes`);
+    lines.push(`### ${pack.title} — ${pack.nodeNames.length} class_types installed`);
     lines.push(pack.nodeNames.join(', '));
     lines.push('');
   }
