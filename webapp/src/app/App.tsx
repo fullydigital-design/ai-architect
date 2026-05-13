@@ -213,6 +213,64 @@ function isWorkflowModificationRequest(message: string): boolean {
   return mentionsCurrentWorkflow || structuralVerb;
 }
 
+/**
+ * Sanitise a freshly-built conversation history so it parses through picky
+ * local-LLM chat templates (Qwen / Mistral / Phi …) which require:
+ *   - The first non-system message to be from `user`.
+ *   - No two adjacent messages with the same role.
+ *   - Non-empty content on every message.
+ *
+ * The chat UI legitimately produces histories that violate all three:
+ *   - The workflow-summary "Imported: …" card is rendered as an assistant
+ *     message in the thread; if the user's first send happens right after
+ *     import, the history opens with assistant before user.
+ *   - Empty completions from a prior failed turn leave assistant rows with
+ *     no content.
+ *   - Multiple user messages can accumulate if the assistant fails to
+ *     reply (user retries before a response comes back).
+ *
+ * Strategy:
+ *   - Drop any leading assistant/empty rows until we find the first user.
+ *   - Drop any message whose content is empty/whitespace.
+ *   - Coalesce adjacent same-role messages by joining their content.
+ *
+ * Lossless for the conversation flow — the model always sees a strict
+ * user/assistant/user/assistant transcript that ends on the current user
+ * message.
+ */
+function sanitiseConversationForModel(
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  // Drop leading non-user / empty rows.
+  let start = 0;
+  while (start < history.length) {
+    const msg = history[start];
+    if (msg.role === 'user' && msg.content.trim().length > 0) break;
+    start += 1;
+  }
+  const trimmed = history.slice(start);
+
+  // Coalesce + drop empties.
+  const out: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  for (const msg of trimmed) {
+    if (!msg.content || msg.content.trim().length === 0) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === msg.role) {
+      last.content = `${last.content}\n\n${msg.content}`;
+    } else {
+      out.push({ role: msg.role, content: msg.content });
+    }
+  }
+
+  if (out.length !== history.length) {
+    logger.log(
+      `[Chat] Sanitised conversation history: ${history.length} → ${out.length} messages (dropped leading non-user / empty / coalesced)`,
+    );
+  }
+
+  return out;
+}
+
 function getMaxNodeId(workflow: ComfyUIWorkflow): number {
   const maxNode = (workflow.nodes || []).reduce((max, node) => Math.max(max, node.id), 0);
   return Math.max(maxNode, workflow.last_node_id || 0);
@@ -1524,11 +1582,19 @@ ${getModificationExamples()}
     try {
       const beforeWorkflow = currentWorkflow;
 
-      // Build conversation history
-      let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      // Build conversation history, then sanitise for picky local-LLM chat
+      // templates. Some Qwen / Mistral / Phi templates throw
+      // "No user query found in messages" when the first non-system message
+      // is from the assistant, when two same-role messages sit adjacent, or
+      // when an assistant message has empty content. All three happen here:
+      // the workflow-summary "Imported: …" card is stored as an assistant
+      // message in the chat thread (correct for the UI), and prior empty
+      // completions from failed turns leave empty assistant rows.
+      const rawHistory = [
         ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         { role: 'user' as const, content: augmentedContent },
       ];
+      let conversationHistory = sanitiseConversationForModel(rawHistory);
 
       const requestMode = detectRequestMode(content, !!beforeWorkflow);
       const useOperationModify = chatMode === 'build' && requestMode === 'modify' && !!beforeWorkflow;
