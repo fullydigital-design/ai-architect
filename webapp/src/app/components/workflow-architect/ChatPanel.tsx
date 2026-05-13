@@ -212,6 +212,83 @@ function StreamingPlaceholder({ chatMode }: { chatMode: 'build' | 'brainstorm' }
   );
 }
 
+/**
+ * One-click prompt chips that appear above the input when a workflow is
+ * loaded. Each chip dispatches a pre-templated message that hits the
+ * brainstorm Phase B / B' flows (explain → walkthrough, suggest → improvement
+ * card, add ControlNet / switch checkpoint / tune → recommendation card with
+ * a Build button). Saves the user typing the same prompt 50 times.
+ */
+const WORKFLOW_QUICK_ACTIONS: Array<{
+  id: string;
+  Icon: typeof Lightbulb;
+  label: string;
+  /** Plain message dispatched on click. Phrased so the brainstorm prompt
+   *  rules pick the right phase (B for new flow, B' for enhancement). */
+  prompt: string;
+}> = [
+  {
+    id: 'explain',
+    Icon: Lightbulb,
+    label: 'Explain this workflow',
+    prompt: 'Walk me through this workflow node by node. For each node, name it, say what it does in one line, and call out the key widget values that affect output.',
+  },
+  {
+    id: 'improve',
+    Icon: Zap,
+    label: 'Suggest improvements',
+    prompt: 'What could we improve in this workflow using the custom nodes I already have installed? Give me 2–4 specific upgrades with the exact class_types to add, then emit the recommendation block so I can apply them.',
+  },
+  {
+    id: 'controlnet',
+    Icon: Wrench,
+    label: 'Add ControlNet',
+    prompt: 'Add a ControlNet to this workflow. Use the appropriate ControlNetLoader + ControlNetApplyAdvanced (or the SDXL/FLUX variant if the checkpoint dictates), wire it into the conditioning chain, and emit a recommendation block I can apply.',
+  },
+  {
+    id: 'switch-checkpoint',
+    Icon: Puzzle,
+    label: 'Switch checkpoint',
+    prompt: 'What checkpoint would you switch this workflow to for better quality, and why? Pick from my installed checkpoints and explain trade-offs in 3–4 lines.',
+  },
+  {
+    id: 'tune',
+    Icon: Wand2,
+    label: 'Tune for higher quality',
+    prompt: 'Tune the sampler, steps, CFG, and scheduler in this workflow for the highest-quality output the checkpoint can produce. Tell me what to change and why, in a compact list.',
+  },
+];
+
+function WorkflowQuickActions({
+  chatMode,
+  onDispatch,
+}: {
+  chatMode: 'build' | 'brainstorm';
+  onDispatch: (prompt: string) => void;
+}) {
+  // The chips dispatch brainstorm-style prompts. If the user is in Build mode
+  // they still work — the message goes through handleSendMessage which routes
+  // by chatMode. But the wording targets the brainstorm prompt rules; keep
+  // them shown regardless so the user can ask while building too.
+  void chatMode;
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {WORKFLOW_QUICK_ACTIONS.map((action) => (
+        <button
+          key={action.id}
+          type="button"
+          onClick={() => onDispatch(action.prompt)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-surface-2/50 px-2.5 py-1 text-[11px] text-content-secondary hover:bg-surface-3 hover:text-content-primary hover:border-accent/40 transition-colors"
+          title={action.prompt}
+        >
+          <action.Icon className="h-3 w-3 text-accent-text" />
+          {action.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ---- Main component ---------------------------------------------------------
 
 export function ChatPanel({
@@ -817,6 +894,15 @@ export function ChatPanel({
               )}
             </div>
           </div>
+        )}
+        {currentWorkflow && (currentWorkflow.nodes?.length ?? 0) > 0 && !isLoading && (
+          <WorkflowQuickActions
+            chatMode={chatMode}
+            onDispatch={(prompt) => {
+              if (isLoading) return;
+              onSendMessage(prompt);
+            }}
+          />
         )}
         <div className="flex items-end gap-2">
           <div className="flex gap-1">
