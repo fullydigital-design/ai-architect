@@ -13,6 +13,7 @@
 
 import { useState, useMemo, useCallback, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import { Check, Copy, ChevronDown, ChevronRight, Layers, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -775,7 +776,7 @@ export function RichMessage({
   if (!useStepView) {
     return (
       <div className="rich-message prose-reset">
-        <ReactMarkdown components={mdComponents} urlTransform={urlTransform}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents} urlTransform={urlTransform}>
           {normalizedContent}
         </ReactMarkdown>
       </div>
@@ -802,7 +803,7 @@ export function RichMessage({
         if (section.type === 'intro') {
           return (
             <IntroCard key={`intro-${idx}`}>
-              <ReactMarkdown components={mdComponents} urlTransform={urlTransform}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents} urlTransform={urlTransform}>
                 {section.content}
               </ReactMarkdown>
             </IntroCard>
@@ -817,7 +818,7 @@ export function RichMessage({
               title={section.title}
               collapsed={allCollapsed}
             >
-              <ReactMarkdown components={mdComponents} urlTransform={urlTransform}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents} urlTransform={urlTransform}>
                 {section.content}
               </ReactMarkdown>
             </StepCardControlled>
@@ -827,7 +828,7 @@ export function RichMessage({
         // section type
         return (
           <div key={`section-${idx}`} className="my-2">
-            <ReactMarkdown components={mdComponents} urlTransform={urlTransform}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents} urlTransform={urlTransform}>
               {section.content}
             </ReactMarkdown>
           </div>
