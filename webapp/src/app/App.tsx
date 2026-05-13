@@ -333,7 +333,7 @@ function applyAutoWorkflowNote(
 export default function App() {
   const { theme, toggleTheme, isDark } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatMode, setChatMode] = useState<ChatMode>('build');
+  const [chatMode, setChatMode] = useState<ChatMode>('brainstorm');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [correctionStatus, setCorrectionStatus] = useState('');

@@ -46,7 +46,11 @@ function normalizePackId(value: string): string {
 export function createDefaultSelectorState(): SelectorState {
   return {
     version: 2,
-    mode: 'compact',
+    // Default to 'names' mode — cheap intro that supports the brainstorm
+    // auto-flow (AI sees only node names, requests full schemas via the
+    // cascade approval card / Build button once the user picks a target).
+    // Existing users keep whatever they had saved.
+    mode: 'names',
     packs: {},
     lastUpdated: Date.now(),
   };
