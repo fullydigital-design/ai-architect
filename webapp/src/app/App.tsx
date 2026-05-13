@@ -44,7 +44,7 @@ import {
   logCascadeResolution,
 } from '../services/schema-cascade';
 import { claimForAI, claimForComfyUI, markVRAMIdle } from '../services/vram-coordinator';
-import { findPackSwapCandidates, buildPackSwapCandidateSection } from '../services/pack-swap-candidates';
+import { findPackSwapCandidates, buildPackSwapCandidateSection, buildPackNameListSection } from '../services/pack-swap-candidates';
 import {
   buildNodeExtractionPrompt,
   parseRecommendedNodes,
@@ -1437,7 +1437,18 @@ ${getModificationExamples()}
         schemaMode: schemaSelectorState.mode,
       })
       : '';
-    const packsSection = `${availabilitySection}${schemaContext.section}${buildPacksPromptSection(
+    // When the user mentions a specific pack ("with swarmui nodes",
+    // "using kjnodes", etc.) inject that pack's REAL node names so the AI
+    // doesn't hallucinate plausible-sounding-but-fake class_types. The
+    // recommendation card disables checkboxes on unknown names; without
+    // this, recommendations end up uncheckable.
+    const packNameListSection = userRequestedTypeReplacement(userMessage)
+      ? buildPackNameListSection(userMessage, selectorClassifiedPacks)
+      : '';
+    if (packNameListSection) {
+      logger.log('[PackSwap] Injected pack name list into brainstorm prompt');
+    }
+    const packsSection = `${availabilitySection}${schemaContext.section}${packNameListSection}${buildPacksPromptSection(
       userMessage,
       effectivePromptPacks,
       effectiveMode,
@@ -1497,6 +1508,7 @@ ${getModificationExamples()}
     fullModelLibraryPromptSection,
     modelLibraryPromptSection,
     schemaSelectorState.mode,
+    selectorClassifiedPacks,
   ]);
 
   // Core AI call that returns the parsed workflow + response text

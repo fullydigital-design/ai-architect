@@ -157,6 +157,40 @@ export function findPackSwapCandidates(
 }
 
 /**
+ * Brainstorm-side counterpart to buildPackSwapCandidateSection: when the user
+ * mentions a pack, list the EXACT class_types that exist in that pack so the
+ * AI doesn't hallucinate plausible-sounding names like "SwarmUI_BatchGenerator"
+ * (which doesn't exist) when the real options are `SwarmKSampler`,
+ * `SwarmClipTextEncodeAdvanced`, etc.
+ *
+ * Names-only (no full schemas) keeps this cheap — even big packs like KJNodes
+ * (~227 nodes) stay under ~2k tokens.
+ */
+export function buildPackNameListSection(
+  userPrompt: string,
+  packs: ClassifiedPack[],
+): string {
+  if (!userPrompt) return '';
+  const targets = identifyTargetPacks(userPrompt, packs);
+  if (targets.length === 0) return '';
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('## ACTUAL NODES IN REQUESTED PACK(S) — pick recommendations FROM THIS LIST');
+  lines.push('');
+  lines.push(
+    `You mentioned ${targets.map((p) => p.title).join(', ')}. Below are the EXACT class_types that exist in those packs (from the live /object_info cache). When you emit a \`json:recommended-nodes\` block, you MUST use class_types from THIS list. Do NOT invent node names — anything not in this list won't render as a selectable option in the user's recommendation card.`,
+  );
+  lines.push('');
+  for (const pack of targets) {
+    lines.push(`### ${pack.title} — ${pack.nodeNames.length} nodes`);
+    lines.push(pack.nodeNames.join(', '));
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+/**
  * Format the candidate schemas as a system-prompt section the modify prompt
  * can append. Uses the full schema serializer so the AI sees inputs/outputs
  * /widgets exactly as ComfyUI defines them — no guessing widget keys.
