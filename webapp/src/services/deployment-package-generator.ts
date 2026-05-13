@@ -365,24 +365,44 @@ function detectModelAuthor(filename: string, category: string): string | null {
   return null;
 }
 
+/**
+ * Word-wrap that preserves existing newlines + indentation. Used by the
+ * deployment-package note generator to keep numbered lists and bullet
+ * lines on their own lines instead of reflowing into one paragraph.
+ */
 function wordWrap(text: string, maxWidth: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    if (!current) {
-      current = word;
+  const out: string[] = [];
+  const rawLines = text.replace(/\r\n/g, '\n').split('\n');
+  for (let rawLine of rawLines) {
+    if (rawLine.trim() === '') {
+      if (out.length > 0 && out[out.length - 1].trim() !== '') out.push('');
       continue;
     }
-    if (current.length + 1 + word.length > maxWidth) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = `${current} ${word}`;
+    // "+" bullets -> "•" for consistency with other sections.
+    rawLine = rawLine.replace(/^(\s*)\+\s+/, '$1• ');
+    const leadMatch = rawLine.match(/^(\s*)/);
+    const innerLead = leadMatch ? leadMatch[1] : '';
+    if (rawLine.length <= maxWidth) {
+      out.push(rawLine);
+      continue;
     }
+    const words = rawLine.trim().split(/\s+/).filter(Boolean);
+    let current = innerLead;
+    for (const word of words) {
+      const candidate = current.length === innerLead.length
+        ? `${innerLead}${word}`
+        : `${current} ${word}`;
+      if (candidate.length > maxWidth && current.trim().length > 0) {
+        out.push(current);
+        current = `${innerLead}    ${word}`;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current.trim().length > 0) out.push(current);
   }
-  if (current) lines.push(current);
-  return lines;
+  while (out.length > 0 && out[out.length - 1].trim() === '') out.pop();
+  return out;
 }
 
 function buildWhatItDoes(workflow: ComfyUIWorkflow, analysis: WorkflowAnalysis): string[] {

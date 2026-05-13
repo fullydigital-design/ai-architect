@@ -87,9 +87,16 @@ export function buildNoteContent(metadata: WorkflowNoteMetadata): string {
   lines.push('WHAT IT DOES');
   const description = (metadata.description || '').trim();
   if (description) {
-    for (const wrapped of wordWrap(description, 72)) {
-      lines.push(`  ${wrapped}`);
-    }
+    // The description from generateWorkflowDescription already has structural
+    // newlines (pipeline line, "How it works" numbered list, "Why this works"
+    // bullets). formatBlock preserves those instead of collapsing into one
+    // wordWrap'd paragraph.
+    const blockLines = formatBlock(description, {
+      indent: '  ',
+      maxWidth: 72,
+      skipTitle: metadata.workflowName,
+    });
+    for (const line of blockLines) lines.push(line);
   } else {
     lines.push('  This workflow generates images in ComfyUI using the configured models and settings.');
   }
@@ -155,15 +162,17 @@ export function buildNoteContent(metadata: WorkflowNoteMetadata): string {
   }
 
   lines.push('STATS');
-  lines.push(`  ${metadata.stats.totalNodes} nodes  |  ${metadata.stats.uniqueNodeTypes} unique types  |  ${models.length} models  |  ${packs.length} custom packs`);
+  lines.push(`  Nodes:        ${metadata.stats.totalNodes}  (${metadata.stats.uniqueNodeTypes} unique types)`);
+  lines.push(`  Models:       ${models.length}`);
+  lines.push(`  Custom packs: ${packs.length}`);
   if (metadata.stats.subgraphNodes > 0) {
-    lines.push(`  Subgraph Nodes: ${metadata.stats.subgraphNodes}`);
+    lines.push(`  Subgraphs:    ${metadata.stats.subgraphNodes}`);
   }
   if (metadata.stats.groupNodes > 0) {
-    lines.push(`  Group Nodes: ${metadata.stats.groupNodes}`);
+    lines.push(`  Groups:       ${metadata.stats.groupNodes}`);
   }
   if (metadata.stats.missingModels !== undefined && metadata.stats.missingModels > 0) {
-    lines.push(`  Missing Models: ${metadata.stats.missingModels}`);
+    lines.push(`  Missing:      ${metadata.stats.missingModels} model${metadata.stats.missingModels === 1 ? '' : 's'}`);
   }
   lines.push('');
 
@@ -338,22 +347,90 @@ function formatExportTimestamp(date = new Date()): string {
   return `${y}-${m}-${d} ${hh}:${mm}`;
 }
 
-function wordWrap(text: string, maxWidth: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    if (!current) {
-      current = word;
+/**
+ * Format a structural text block for the auto-Note inside ComfyUI:
+ *   - Preserves existing newlines so numbered lists / bullet lines stay on
+ *     their own line instead of being reflown into one paragraph.
+ *   - Word-wraps each individual line at maxWidth, propagating its leading
+ *     indent on the continuation.
+ *   - Trims trailing blank runs and collapses 3+ blank lines to 2.
+ *   - Strips a single leading line if it duplicates the workflow title
+ *     (avoids "Title \n Title \n description..." after the manual+auto
+ *     description merge in buildFinalDescription).
+ */
+function formatBlock(
+  text: string,
+  options: { indent: string; maxWidth: number; skipTitle?: string },
+): string[] {
+  const { indent, maxWidth, skipTitle } = options;
+  const out: string[] = [];
+  const rawLines = text.replace(/\r\n/g, '\n').split('\n');
+
+  let consumedSkipTitle = false;
+  for (let rawLine of rawLines) {
+    // Drop a leading exact-title duplicate ("AI modified workflow" appearing
+    // both as workflow_name AND as the first line of the description).
+    if (
+      !consumedSkipTitle
+      && skipTitle
+      && rawLine.trim().toLowerCase() === skipTitle.trim().toLowerCase()
+    ) {
+      consumedSkipTitle = true;
       continue;
     }
-    if (current.length + 1 + word.length > maxWidth) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = `${current} ${word}`;
+
+    if (rawLine.trim() === '') {
+      // Preserve a single blank line; collapse runs of blanks.
+      if (out.length > 0 && out[out.length - 1].trim() !== '') {
+        out.push('');
+      }
+      continue;
+    }
+
+    // Detect the leading whitespace inside the line so wrap continuations
+    // line up with the bullet / number.
+    const leadMatch = rawLine.match(/^(\s*)/);
+    const innerLead = leadMatch ? leadMatch[1] : '';
+
+    // Bullet normalisation: render "+" bullets as "•" for consistency with
+    // the MODELS / CUSTOM NODE PACKS sections.
+    rawLine = rawLine.replace(/^(\s*)\+\s+/, '$1• ');
+
+    // Word-wrap respecting maxWidth, but treat the FIRST wrapped chunk as
+    // the line itself and subsequent chunks as continuations with the
+    // inner indent so a numbered step's continuation reads cleanly.
+    const wrapped = wrapKeepingIndent(rawLine, maxWidth, innerLead);
+    for (const piece of wrapped) {
+      out.push(`${indent}${piece}`);
     }
   }
-  if (current) lines.push(current);
-  return lines;
+
+  // Drop trailing blank lines.
+  while (out.length > 0 && out[out.length - 1].trim() === '') out.pop();
+  return out;
+}
+
+function wrapKeepingIndent(line: string, maxWidth: number, innerLead: string): string[] {
+  const trimmed = line.trimEnd();
+  if (trimmed.length <= maxWidth) return [trimmed];
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  let current = innerLead;
+  let isFirst = true;
+  for (const word of words) {
+    const candidate = current.length === innerLead.length
+      ? `${innerLead}${word}`
+      : `${current} ${word}`;
+    if (candidate.length > maxWidth && current.trim().length > 0) {
+      out.push(current);
+      current = `${innerLead}    ${word}`; // continuation indent under list marker
+      isFirst = false;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.trim().length > 0) out.push(current);
+  void isFirst;
+  return out;
 }

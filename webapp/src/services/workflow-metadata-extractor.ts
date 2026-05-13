@@ -520,11 +520,14 @@ export function generateWorkflowDescription(nodes: any[]): string {
   const lines: string[] = [];
   lines.push(`This is a${ecosystem ? ` ${ecosystem}` : ''} ${pipelineType} workflow with ${nodes.length} nodes.`);
   if (summaryFeatures.length > 0) {
-    lines.push(`Pipeline: ${summaryFeatures.join(' -> ')}`);
+    // Use → arrow + blank line so the pipeline renders as its own visual block
+    // once the note formatter preserves newlines.
+    lines.push('');
+    lines.push(`Pipeline:  ${summaryFeatures.join('  →  ')}`);
   }
   lines.push('');
 
-  lines.push('HOW IT WORKS:');
+  lines.push('How it works');
   let step = 1;
   for (const [role, roleNodes] of sortedRoles) {
     if (role === 'utility') continue;
@@ -547,9 +550,9 @@ export function generateWorkflowDescription(nodes: any[]): string {
   ).slice(0, 5);
 
   if (benefits.length > 0) {
-    lines.push('WHY THIS WORKFLOW IS GREAT:');
+    lines.push('Why this works');
     for (const benefit of benefits) {
-      lines.push(`  + ${benefit}`);
+      lines.push(`  • ${benefit}`);
     }
     lines.push('');
   }
