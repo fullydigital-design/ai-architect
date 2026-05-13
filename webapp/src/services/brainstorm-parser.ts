@@ -87,7 +87,7 @@ function validateAndNormalizeRecommendation(parsed: unknown): WorkflowRecommenda
     return null;
   }
 
-  const validNodes = source.nodes
+  const rawNodes = source.nodes
     .filter((node): node is Record<string, unknown> => typeof node === 'object' && node !== null)
     .filter((node) => typeof node.class_type === 'string' && node.class_type.trim().length > 0)
     .map((node) => ({
@@ -101,9 +101,24 @@ function validateAndNormalizeRecommendation(parsed: unknown): WorkflowRecommenda
       role: typeof node.role === 'string' ? node.role.trim() : '',
     }));
 
+  // Dedupe by class_type — local LLMs sometimes emit the same node twice (e.g.
+  // SaveImage listed once per usage). The card renders by pack+class_type key,
+  // so duplicates trigger React's "two children with the same key" warning and
+  // render a confused checklist.
+  const seen = new Set<string>();
+  const validNodes = rawNodes.filter((node) => {
+    if (seen.has(node.class_type)) return false;
+    seen.add(node.class_type);
+    return true;
+  });
+
   if (validNodes.length === 0) {
     logger.warn('[BrainstormParser] No valid nodes in recommendation block');
     return null;
+  }
+
+  if (validNodes.length < rawNodes.length) {
+    logger.log(`[BrainstormParser] Deduped ${rawNodes.length - validNodes.length} duplicate class_type(s) from recommendation`);
   }
 
   const workflowTitle = typeof source.workflow_title === 'string' && source.workflow_title.trim().length > 0

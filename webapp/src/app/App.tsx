@@ -2129,6 +2129,28 @@ ${getModificationExamples()}
     const detectedNodes = detectRequiredNodes(withNote);
     setRequiredNodes(detectedNodes);
 
+    // Auto-narrow the Schema Drawer to the class_types this workflow actually
+    // uses, in full-schema mode. The AI now has precise input/output/widget
+    // info for every node on the canvas — enables high-quality "explain this
+    // workflow / how can we optimise / how do we add ControlNet" answers
+    // without exploding the prompt to all-installed-schemas.
+    const workflowClassTypes = [...new Set(
+      (withNote.nodes || [])
+        .map((node) => String(node?.type || '').trim())
+        .filter((type) => type.length > 0),
+    )];
+    if (workflowClassTypes.length > 0 && selectorClassifiedPacks.length > 0) {
+      const narrowed = createNodeSelectionFromRecommendation(
+        workflowClassTypes,
+        selectorClassifiedPacks,
+        'full',
+      );
+      setSchemaSelectorState(narrowed);
+      logger.log(
+        `[WorkflowLoad] Auto-narrowed schema drawer to ${workflowClassTypes.length} class_type(s) from the imported workflow`,
+      );
+    }
+
     let analysis: WorkflowAnalysis | undefined;
     try {
       analysis = await analyzeWorkflow(withNote, nodeLibrary.isPinned, undefined, settings.comfyuiUrl);
@@ -2166,7 +2188,7 @@ ${getModificationExamples()}
     } else if ((options?.unknownNodeCount || 0) > 0) {
       toast.warning(`${options?.unknownNodeCount} unknown node type(s) — may need custom node packs.`);
     }
-  }, [commitWorkflowChange, nodeLibrary.isPinned, settings.comfyuiUrl]);
+  }, [commitWorkflowChange, nodeLibrary.isPinned, settings.comfyuiUrl, selectorClassifiedPacks]);
 
   const handleImportWorkflow = useCallback(async (file: File) => {
     try {
