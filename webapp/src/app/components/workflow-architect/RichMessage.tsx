@@ -116,6 +116,69 @@ function hasSignificantSteps(sections: ParsedSection[]): boolean {
   return stepCount >= 2;
 }
 
+/**
+ * Pre-process AI markdown before handing it to ReactMarkdown.
+ *
+ * Local-LLM brainstorm replies frequently emit GFM tables collapsed onto a
+ * single line — e.g.:
+ *   `| Node | Pack | Role | |---|---|---|---| | KSampler | Core | Sample | |`
+ * The markdown parser only recognises tables when each row is on its own
+ * line, so without this normaliser the user sees the raw pipe separators.
+ *
+ * Two transforms:
+ *   1. Split single-line tables back into proper multi-line tables.
+ *   2. Promote standalone `**Bold Header**` paragraphs that precede a table
+ *      or list into an h3 — so they pick up the section-header card styling
+ *      instead of rendering as inline bold text.
+ */
+function normalizeAIMarkdown(content: string): string {
+  if (!content) return content;
+  const lines = content.split('\n');
+  const out: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Transform #1: collapsed table → multi-line table.
+    const hasSeparator = /\|-+\|/.test(line);
+    const hasRowBoundary = /\|\s+\|/.test(line);
+    if (hasSeparator && hasRowBoundary) {
+      // Ensure a blank line precedes the table (markdown requires it).
+      if (out.length > 0 && out[out.length - 1].trim() !== '') {
+        out.push('');
+      }
+      // Insert newlines at every row boundary "| |" — the closing pipe of
+      // row N followed by the opening pipe of row N+1.
+      const expanded = line.replace(/\|\s+\|/g, '|\n|').split('\n');
+      out.push(...expanded);
+      // Trailing blank line so subsequent content isn't sucked into the table.
+      out.push('');
+      continue;
+    }
+
+    // Transform #2: lone "**Header**" line followed (eventually) by a table
+    // or list becomes "### Header". Skips lines that already start with `#`.
+    const boldHeaderMatch = line.match(/^\s*\*\*([^*\n]{1,80})\*\*\s*$/);
+    if (boldHeaderMatch) {
+      // Look ahead — does the next non-blank line start a table or a list?
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === '') j++;
+      const next = lines[j] || '';
+      const looksLikeTableOrList = /^\s*\|/.test(next) || /^\s*[-*]\s/.test(next);
+      if (looksLikeTableOrList) {
+        if (out.length > 0 && out[out.length - 1].trim() !== '') out.push('');
+        out.push(`### ${boldHeaderMatch[1].trim()}`);
+        out.push('');
+        continue;
+      }
+    }
+
+    out.push(line);
+  }
+
+  return out.join('\n');
+}
+
 // ---- Connection type badge inline replacement --------------------------------
 
 /**
@@ -689,10 +752,14 @@ export function RichMessage({
   urlTransform,
   isStreaming = false,
 }: RichMessageProps) {
+  // Repair AI output before parsing (split inline-collapsed tables,
+  // promote bold pseudo-headers to h3 so they get section-header styling).
+  const normalizedContent = useMemo(() => normalizeAIMarkdown(content), [content]);
+
   // Parse sections (skip for streaming messages for performance)
   const sections = useMemo(
-    () => (isStreaming ? [] : parseSections(content)),
-    [content, isStreaming],
+    () => (isStreaming ? [] : parseSections(normalizedContent)),
+    [normalizedContent, isStreaming],
   );
 
   const useStepView = !isStreaming && hasSignificantSteps(sections);
@@ -709,7 +776,7 @@ export function RichMessage({
     return (
       <div className="rich-message prose-reset">
         <ReactMarkdown components={mdComponents} urlTransform={urlTransform}>
-          {content}
+          {normalizedContent}
         </ReactMarkdown>
       </div>
     );
