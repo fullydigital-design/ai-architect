@@ -586,7 +586,24 @@ async function callOpenAI(
     ? extras.maxOutputTokens
     : getMaxOutputTokens(model);
   const isOfficialOpenAI = baseUrl.includes('api.openai.com');
-  const isLocalLMStudio = !isOfficialOpenAI && apiKey === 'lm-studio';
+
+  const requestBody = {
+    model,
+    messages,
+    stream: !!onChunk,
+    // stream_options and max_completion_tokens are OpenAI-specific — local servers use max_tokens
+    ...(isOfficialOpenAI
+      ? { stream_options: onChunk ? { include_usage: true } : undefined, max_completion_tokens: maxOutput }
+      : { max_tokens: maxOutput }
+    ),
+    temperature: 0.3,
+  };
+
+  // NOTE: we intentionally do NOT send `chat_template_kwargs.enable_thinking`.
+  // Some Qwen3 templates accept it, others fail silently and return an empty
+  // completion. If reasoning needs to be disabled, do it in the LM Studio UI
+  // (Server Settings → toggle the model's reasoning preset).
+  void extras?.disableThinking;
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -594,23 +611,7 @@ async function callOpenAI(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: !!onChunk,
-      // stream_options and max_completion_tokens are OpenAI-specific — local servers use max_tokens
-      ...(isOfficialOpenAI
-        ? { stream_options: onChunk ? { include_usage: true } : undefined, max_completion_tokens: maxOutput }
-        : { max_tokens: maxOutput }
-      ),
-      // LM Studio (llama.cpp template) honors chat_template_kwargs.enable_thinking
-      // for Qwen3 / DeepSeek-R1 / similar. Other providers ignore unknown fields.
-      ...(isLocalLMStudio && extras?.disableThinking
-        ? { chat_template_kwargs: { enable_thinking: false } }
-        : {}
-      ),
-      temperature: 0.3,
-    }),
+    body: JSON.stringify(requestBody),
     signal,
   });
 
@@ -620,7 +621,7 @@ async function callOpenAI(
   }
 
   if (onChunk && res.body) {
-    return readOpenAIStream(res.body, onChunk);
+    return readOpenAIStream(res.body, onChunk, model);
   }
 
   const data = await res.json();
@@ -804,12 +805,16 @@ async function callGoogle(
 async function readOpenAIStream(
   body: ReadableStream<Uint8Array>,
   onChunk: (chunk: string) => void,
+  model?: string,
 ): Promise<AICallResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let full = '';
   let buffer = '';
   let streamUsage: AITokenUsage | null = null;
+  let chunkCount = 0;
+  let firstErrorSurfaced = '';
+  let finishReason = '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -827,6 +832,13 @@ async function readOpenAIStream(
 
       try {
         const parsed = JSON.parse(payload);
+        // Some servers surface errors as data lines with `{ error: ... }` — keep
+        // the first one so we can log it if the response ends up empty.
+        if (parsed.error && !firstErrorSurfaced) {
+          firstErrorSurfaced = typeof parsed.error === 'string'
+            ? parsed.error
+            : (parsed.error.message || JSON.stringify(parsed.error)).slice(0, 300);
+        }
         if (parsed.usage) {
           streamUsage = {
             inputTokens: parsed.usage.prompt_tokens ?? 0,
@@ -835,15 +847,33 @@ async function readOpenAIStream(
               ?? ((parsed.usage.prompt_tokens ?? 0) + (parsed.usage.completion_tokens ?? 0)),
           };
         }
-        const delta = parsed.choices?.[0]?.delta?.content;
+        const choice = parsed.choices?.[0];
+        const delta = choice?.delta?.content;
+        if (typeof choice?.finish_reason === 'string' && choice.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
         if (delta) {
           full += delta;
+          chunkCount += 1;
           onChunk(delta);
         }
       } catch {
         // skip malformed chunks
       }
     }
+  }
+
+  if (chunkCount === 0 && full.length === 0) {
+    // The model returned an empty completion. Surface enough context that the
+    // caller can tell whether it was a chat-template incompatibility, a
+    // length-cap stop, or a content filter.
+    const detail = [
+      model ? `model=${model}` : '',
+      finishReason ? `finish_reason=${finishReason}` : 'finish_reason=(none)',
+      firstErrorSurfaced ? `error=${firstErrorSurfaced}` : '',
+      streamUsage ? `usage_in=${streamUsage.inputTokens} usage_out=${streamUsage.outputTokens}` : 'usage=(missing)',
+    ].filter(Boolean).join(' | ');
+    logger.warn(`[AI] Empty completion from streaming endpoint — ${detail}`);
   }
 
   return { text: full, usage: streamUsage };
