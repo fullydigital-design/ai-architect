@@ -1362,9 +1362,18 @@ ${getModificationExamples()}
         .map((pack) => `- ${pack.title} (${pack.nodeCount} nodes) - ${pack.reference}`)
         .join('\n')}`
       : '';
-    const workflowSummary = currentAnalysis
+    // Brainstorm benefits from BOTH the high-level architecture summary AND
+    // the structural node-by-node breakdown when a workflow is loaded — the
+    // first lets the AI talk about "this is FLUX text-to-image", the second
+    // lets it reference exact nodes by ID + widget values when the user asks
+    // "what does node #5 do" or "why is this connection wrong".
+    const structuralSummary = currentWorkflow ? summarizeWorkflow(currentWorkflow).text : '';
+    const analysisSummary = currentAnalysis
       ? formatAnalysisSummary(currentAnalysis, 'Current workflow')
-      : (currentWorkflow ? summarizeWorkflow(currentWorkflow).text : undefined);
+      : '';
+    const workflowSummary = [analysisSummary, structuralSummary]
+      .filter((s) => s.trim().length > 0)
+      .join('\n\n---\n\n') || undefined;
     const includeRecommendationFormat = availabilitySection.trim().length > 0;
     const currentWorkflowNodeCount = currentWorkflow?.nodes?.length ?? 0;
     const currentStateNote = liveCache
@@ -1668,10 +1677,30 @@ ${getModificationExamples()}
             nodes: validateRecommendedNodes(parsedRecommendation.nodes, liveNodeMap),
           }
           : undefined;
-        const brainstormDisplayContent = displayText
+        const trimmedDisplay = displayText.trim();
+        const hasMeaningfulContent = trimmedDisplay.length > 0 || !!cascadeRequest || !!recommendation;
+
+        if (!hasMeaningfulContent) {
+          // Surface the empty-completion to the user with a retry affordance
+          // instead of inserting a silent empty bubble.
+          const errorMessage: Message = {
+            id: generateId(),
+            role: 'assistant',
+            content: '',
+            timestamp: Date.now(),
+            error: {
+              reason: 'The AI returned an empty response. This usually means the model hit its chat-template limits, a content filter, or ran out of output tokens. Console has the diagnostic.',
+              retryable: true,
+            },
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+          return;
+        }
+
+        const brainstormDisplayContent = trimmedDisplay
           || (cascadeRequest
             ? 'I need full schemas for some nodes before answering — approve the cascade below to continue.'
-            : (recommendation ? 'Recommended workflow nodes captured.' : finalResponse));
+            : 'Recommended workflow nodes captured.');
         const assistantMessage: Message = {
           id: generateId(),
           role: 'assistant',
@@ -1940,12 +1969,17 @@ ${getModificationExamples()}
         logger.log('[AI] Generation stopped by user.');
       } else {
         logger.error('AI call failed:', error);
-        toast.error(error.message || 'Failed to generate workflow');
+        const reason = error.message || 'Failed to generate workflow. Please check your API key and try again.';
+        toast.error(reason);
         const errorMessage: Message = {
           id: generateId(),
           role: 'assistant',
-          content: `Error: ${error.message || 'Failed to generate workflow. Please check your API key and try again.'}`,
+          content: '',
           timestamp: Date.now(),
+          error: {
+            reason,
+            retryable: true,
+          },
         };
         setMessages(prev => [...prev, errorMessage]);
       }
@@ -2074,6 +2108,23 @@ ${getModificationExamples()}
       : m,
     ));
   }, []);
+
+  const handleRetryMessage = useCallback((messageId: string) => {
+    setMessages((prev) => {
+      const errorIdx = prev.findIndex((m) => m.id === messageId);
+      if (errorIdx < 1) return prev;
+      const userMsg = prev[errorIdx - 1];
+      if (userMsg.role !== 'user') return prev;
+      // Strip the failed user/error pair, then re-trigger with the same prompt.
+      const sliced = prev.slice(0, errorIdx - 1);
+      // Defer the send so the slice render commits first; otherwise the new
+      // user message and the just-removed one race on the same React tick.
+      setTimeout(() => {
+        void handleSendMessage(userMsg.content);
+      }, 0);
+      return sliced;
+    });
+  }, [handleSendMessage]);
 
   const handleStopGeneration = useCallback(() => {
     if (aiAbortControllerRef.current) {
@@ -3303,6 +3354,7 @@ ${getModificationExamples()}
                 onBrainstormBuild={handleBrainstormBuild}
                 onApproveCascade={handleApproveCascade}
                 onDeclineCascade={handleDeclineCascade}
+                onRetryMessage={handleRetryMessage}
                 onExtractNodes={handleExtractNodes}
                 isExtracting={isExtractingNodes}
                 pendingRecommendation={pendingRecommendation}

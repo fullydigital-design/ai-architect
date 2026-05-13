@@ -138,6 +138,15 @@ export interface Message {
     nodes: string[];
     status: 'pending' | 'approved' | 'declined';
   };
+  /**
+   * Surfaces an AI failure inline in the chat so the user can retry without
+   * retyping. `retryable=true` causes the message bubble to render a Retry
+   * button that resubmits the prior user prompt.
+   */
+  error?: {
+    reason: string;
+    retryable: boolean;
+  };
 }
 
 export interface RequiredNode {

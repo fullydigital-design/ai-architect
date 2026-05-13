@@ -1,5 +1,5 @@
 import { memo, useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Send, Loader2, Square, Trash2, FileText, Plus, Wand2, Upload, Lightbulb, Wrench, Zap, Library as LibraryIcon, Puzzle } from 'lucide-react';
+import { Send, Loader2, Square, Trash2, FileText, Plus, Wand2, Upload, Lightbulb, Wrench, Zap, Library as LibraryIcon, Puzzle, AlertCircle, RotateCcw } from 'lucide-react';
 import { defaultUrlTransform } from 'react-markdown';
 import type { Components } from 'react-markdown';
 import type { ComfyUIWorkflow, Message } from '../../../types/comfyui';
@@ -170,6 +170,46 @@ interface ChatPanelProps {
   schemaDrawerOpen?: boolean;
   pendingMessage?: string | null;
   onPendingMessageHandled?: () => void;
+  onRetryMessage?: (messageId: string) => void;
+}
+
+/**
+ * Pre-stream feedback bubble. The model may sit silent for several seconds
+ * before the first chunk arrives (cold cache, large context, slow model);
+ * a flat "Working on your request..." line during that gap feels like a
+ * hang. This component re-renders every 500ms with elapsed seconds plus
+ * a tiny phase hint ("preparing prompt" -> "waiting for first token" ->
+ * "still working") so the user can tell it's alive.
+ */
+function StreamingPlaceholder({ chatMode }: { chatMode: 'build' | 'brainstorm' }) {
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startedAt = useRef<number>(Date.now());
+  useEffect(() => {
+    startedAt.current = Date.now();
+    setElapsedMs(0);
+    const interval = setInterval(() => {
+      setElapsedMs(Date.now() - startedAt.current);
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+  const seconds = Math.floor(elapsedMs / 1000);
+  const phase = elapsedMs < 1500
+    ? 'Preparing prompt'
+    : elapsedMs < 6000
+      ? 'Waiting for first token'
+      : elapsedMs < 20000
+        ? 'Still working'
+        : 'Long-running response — model may be loading or thinking';
+  return (
+    <div className="rounded-sm border border-accent/20 bg-accent/[0.04] p-3">
+      <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wide text-accent-text">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span>{chatMode === 'brainstorm' ? 'AI Brainstorm' : 'AI Architect'}</span>
+        <span className="ml-auto tabular-nums text-content-muted">{seconds.toString().padStart(2, '0')}s</span>
+      </div>
+      <div className="text-[12px] text-content-secondary">{phase}…</div>
+    </div>
+  );
 }
 
 // ---- Main component ---------------------------------------------------------
@@ -186,6 +226,7 @@ export function ChatPanel({
   onBrainstormBuild,
   onApproveCascade,
   onDeclineCascade,
+  onRetryMessage,
   onExtractNodes,
   isExtracting = false,
   pendingRecommendation,
@@ -264,6 +305,9 @@ export function ChatPanel({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Tracks position in the per-user message history when navigating with
+  // ↑/↓. -1 means "not navigating, showing the user's draft".
+  const historyIndexRef = useRef<number>(-1);
 
   // Load registry for pack slug resolution (cached — zero cost after first fetch)
   const [registryPacks, setRegistryPacks] = useState<CustomNodePackInfo[]>([]);
@@ -330,15 +374,50 @@ export function ChatPanel({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
+      historyIndexRef.current = -1;
+      return;
+    }
+
+    // ↑/↓ — recall prior user messages when the textarea is empty (or the
+    // user is already navigating history). Matches Slack / shell behaviour.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const isEmpty = input.length === 0;
+      const navigating = historyIndexRef.current >= 0;
+      if (!isEmpty && !navigating) return;
+
+      const userMessages = messages
+        .filter((m) => m.role === 'user' && m.content.trim().length > 0)
+        .map((m) => m.content);
+      if (userMessages.length === 0) return;
+
+      e.preventDefault();
+      if (e.key === 'ArrowUp') {
+        const nextIndex = Math.min(historyIndexRef.current + 1, userMessages.length - 1);
+        historyIndexRef.current = nextIndex;
+        setInput(userMessages[userMessages.length - 1 - nextIndex] ?? '');
+      } else {
+        const nextIndex = historyIndexRef.current - 1;
+        if (nextIndex < 0) {
+          historyIndexRef.current = -1;
+          setInput('');
+        } else {
+          historyIndexRef.current = nextIndex;
+          setInput(userMessages[userMessages.length - 1 - nextIndex] ?? '');
+        }
+      }
     }
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
+    // Any direct edit drops history navigation — the user is composing now,
+    // not recalling. Without this, pressing Down to clear after recall would
+    // forget where we were if the user added a character.
+    historyIndexRef.current = -1;
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
   };
@@ -612,6 +691,7 @@ export function ChatPanel({
                 onBrainstormBuild={handleRecommendationBuild}
                 onApproveCascade={onApproveCascade}
                 onDeclineCascade={onDeclineCascade}
+                onRetryMessage={onRetryMessage}
               />
             ))}
             {isLoading && streamingContent && (
@@ -623,10 +703,7 @@ export function ChatPanel({
               </div>
             )}
             {isLoading && !streamingContent && (
-              <div className="flex items-center gap-2 p-3 text-content-secondary text-sm">
-                <Loader2 className="w-4 h-4 animate-spin text-accent" />
-                <span>Working on your request...</span>
-              </div>
+              <StreamingPlaceholder chatMode={chatMode} />
             )}
             {/* Self-correction status */}
             {correctionStatus && (
@@ -945,6 +1022,7 @@ interface ChatMessageProps {
   comfyuiUrl?: string;
   onApproveCascade?: (messageId: string) => void;
   onDeclineCascade?: (messageId: string) => void;
+  onRetryMessage?: (messageId: string) => void;
 }
 
 function ChatMessage({
@@ -968,6 +1046,7 @@ function ChatMessage({
   comfyuiUrl,
   onApproveCascade,
   onDeclineCascade,
+  onRetryMessage,
 }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const modelSlots = message.workflowAnalysis?.modelSlots ?? [];
@@ -1125,6 +1204,26 @@ function ChatMessage({
       {isUser ? (
         <div className="text-sm text-content-primary">
           {processedContent}
+        </div>
+      ) : message.error ? (
+        <div className="space-y-2">
+          <div className="flex items-start gap-2 rounded border border-state-danger/40 bg-state-danger-muted/30 px-3 py-2">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-state-danger" />
+            <div className="text-[12px] leading-relaxed text-content-primary">
+              <div className="font-medium text-state-danger">AI call failed</div>
+              <div className="mt-0.5 text-content-secondary">{message.error.reason}</div>
+            </div>
+          </div>
+          {message.error.retryable && onRetryMessage && (
+            <button
+              type="button"
+              onClick={() => onRetryMessage(message.id)}
+              className="inline-flex items-center gap-1.5 rounded border border-border-default bg-surface-2 px-2.5 py-1 text-[11px] text-content-primary hover:bg-surface-3 transition-colors"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Retry
+            </button>
+          )}
         </div>
       ) : (
         <div className="text-sm text-content-primary max-w-none">
