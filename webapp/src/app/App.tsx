@@ -214,6 +214,71 @@ function isWorkflowModificationRequest(message: string): boolean {
 }
 
 /**
+ * Detect when the user is explicitly asking for class_type replacements — pack
+ * swaps, sampler swaps, native↔wrapper conversions. The fallback-parser guard
+ * normally rejects modifications that change ≥2 class_types on existing IDs
+ * (it assumes the model got confused). When the user clearly requested those
+ * changes, the guard should stand down instead of bouncing the result with a
+ * "the AI rewrote your nodes" toast.
+ *
+ * Heuristic — keep it generous: false-positives just mean the model gets to
+ * apply its own type swaps, which is the worse failure mode we'd rather not
+ * have. False-negatives (where the user did ask but we didn't detect it) are
+ * recoverable via the Retry button.
+ */
+function userRequestedTypeReplacement(message: string): boolean {
+  if (!message) return false;
+  const text = message.toLowerCase();
+
+  // Explicit replacement verbs — these always license a type swap.
+  if (/\b(swap|replace|convert (to|into)|switch (to|over)|migrate to|change .{1,40} to|use .{1,40} instead( of)?)\b/.test(text)) {
+    return true;
+  }
+
+  // "with X nodes" / "using X nodes" / "with the X pack" patterns.
+  if (/(with|using)\s+(the\s+)?[\w-]+\s+(nodes?|pack|version|wrapper|variants?)/.test(text)) {
+    return true;
+  }
+
+  // Known custom-pack name hints — saying "swarmui", "kjnodes", etc. is a
+  // strong signal that a pack swap is the intent.
+  const PACK_HINTS = [
+    'swarm', 'swarmui', 'swarm ui',
+    'kjnode', 'kj-nodes', 'kj nodes',
+    'impact pack', 'impact-pack',
+    'easyuse', 'easy use', 'easy-use',
+    'rgthree',
+    'comfyroll',
+    'inspire pack', 'inspire-pack',
+    'controlnet aux',
+    'was suite', 'was-node',
+    'crystools',
+    'tinyterra', 'ttn',
+    'efficiency nodes', 'efficiency-nodes',
+    'mtb',
+    'wlsh',
+    'fizz', 'fizznodes',
+    'animatediff',
+    'videohelper',
+    'reactor',
+    'ipadapter',
+    'florence',
+    'gguf',
+    'tooling',
+  ];
+  for (const hint of PACK_HINTS) {
+    if (text.includes(hint)) return true;
+  }
+
+  // Wrapper/native conversion intent.
+  if (/\bnative\b|\bwrapper\b/.test(text) && /(convert|switch|use|change)/.test(text)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Sanitise a freshly-built conversation history so it parses through picky
  * local-LLM chat templates (Qwen / Mistral / Phi …) which require:
  *   - The first non-system message to be from `user`.
@@ -1771,8 +1836,9 @@ ${getModificationExamples()}
             });
 
             const isFreshWorkflow = origMaxId > 20 && fallbackMaxId <= 20;
+            const userAuthorisedTypeSwap = userRequestedTypeReplacement(content);
 
-            if (typeChanges.length > 1 && !isFreshWorkflow) {
+            if (typeChanges.length > 1 && !isFreshWorkflow && !userAuthorisedTypeSwap) {
               // Case A: confused partial rewrite — reject
               const changed = typeChanges.map((n) => {
                 const orig = origMap.get(n.id)!;
@@ -1788,6 +1854,15 @@ ${getModificationExamples()}
               };
               setMessages(prev => [...prev, assistantMessage]);
               return;
+            }
+
+            if (typeChanges.length > 0 && userAuthorisedTypeSwap) {
+              const changed = typeChanges.map((n) => {
+                const orig = origMap.get(n.id)!;
+                return `${orig.type}→${n.type}`;
+              }).join(', ');
+              logger.log(`[Modify] User authorised type swap (${typeChanges.length} node${typeChanges.length === 1 ? '' : 's'}: ${changed}). Bypassing rewrite guard.`);
+              toast.success(`Applied AI type swap (${typeChanges.length} node${typeChanges.length === 1 ? '' : 's'} replaced).`);
             }
 
             if (isFreshWorkflow && fallbackWorkflow) {
