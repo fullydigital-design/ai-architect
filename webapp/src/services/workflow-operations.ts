@@ -353,6 +353,23 @@ RULES:
 - source_slot is 0-based output index.
 - use exact enum strings from /object_info for widget values.
 - new node IDs must be unique and higher than max_id in summary.
+
+WIRING DISCIPLINE (the load-bearing rule — most modifications fail here):
+- Every ADD_NODE you emit MUST be followed by CONNECT operations for EVERY required
+  connection input on that node. Look up the schema first. A FaceDetailer alone is
+  orphan junk — it needs image / model / clip / vae / positive / negative / bbox_detector
+  wired before it can run.
+- If you add a node that REPLACES the role of an existing node in the chain (e.g.
+  IPAdapter Advanced between CheckpointLoader and KSampler), you MUST also
+  DISCONNECT the old wire and CONNECT the new one. Adding a node without rewiring
+  the downstream consumer leaves both the new node and the downstream node useless.
+- If you don't know where to source a required input from, ADD a loader node for it
+  (e.g. UltralyticsDetectorProvider for bbox_detector) and CONNECT that too. Never
+  leave a required input dangling.
+- Before emitting the final ] of the operations array, mentally walk every ADD_NODE:
+  for each required input on that node's schema, is there a CONNECT targeting it?
+  If not — add it. If you genuinely can't source it, drop the ADD_NODE entirely
+  rather than ship an orphan.
 === END OPERATIONS ===
 `;
 }
